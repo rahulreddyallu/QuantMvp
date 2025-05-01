@@ -507,217 +507,217 @@ async def test_telegram_connection(config, logger):
         return False
    
 
-    def get_stock_info_by_key(instrument_key, stock_info_dict):
-        """
-        Get stock info from instrument key (e.g., NSE_EQ|INE117A01022)
+def get_stock_info_by_key(instrument_key, stock_info_dict):
+    """
+    Get stock info from instrument key (e.g., NSE_EQ|INE117A01022)
+    
+    Args:
+        instrument_key: The instrument key to lookup
+        stock_info_dict: Dictionary mapping ISINs to stock information
         
-        Args:
-            instrument_key: The instrument key to lookup
-            stock_info_dict: Dictionary mapping ISINs to stock information
-            
-        Returns:
-            Dictionary with stock information
-        """
-        # Create a reverse mapping from symbol to ISIN
-        symbol_to_isin = {info["symbol"]: isin for isin, info in stock_info_dict.items()}
-        
-        parts = instrument_key.split('|')
-        if len(parts) == 2:
-            isin = parts[1]
-            if isin in stock_info_dict:
-                return stock_info_dict[isin]
-        
-        # Try direct symbol match as fallback
-        if instrument_key in symbol_to_isin:
-            isin = symbol_to_isin[instrument_key]
+    Returns:
+        Dictionary with stock information
+    """
+    # Create a reverse mapping from symbol to ISIN
+    symbol_to_isin = {info["symbol"]: isin for isin, info in stock_info_dict.items()}
+    
+    parts = instrument_key.split('|')
+    if len(parts) == 2:
+        isin = parts[1]
+        if isin in stock_info_dict:
             return stock_info_dict[isin]
-        
-        return {"name": "", "industry": "", "symbol": instrument_key, "series": ""}
+    
+    # Try direct symbol match as fallback
+    if instrument_key in symbol_to_isin:
+        isin = symbol_to_isin[instrument_key]
+        return stock_info_dict[isin]
+    
+    return {"name": "", "industry": "", "symbol": instrument_key, "series": ""}
 
-    def escape_telegram_markdown(text):
-        """
-        Escape special characters for Telegram MarkdownV2 formatting.
+def escape_telegram_markdown(text):
+    """
+    Escape special characters for Telegram MarkdownV2 formatting.
+    
+    Args:
+        text: The text to escape
         
-        Args:
-            text: The text to escape
-            
-        Returns:
-            Escaped text string
-        """
-        if not text:
-            return "N/A"
-        # List of all special characters that need to be escaped in MarkdownV2
-        special_chars = r'_*[]()~`>#+-=|{}.!'
-        escaped_text = re.sub(f'([{re.escape(special_chars)}])', r'\\\1', str(text))
-        return escaped_text
+    Returns:
+        Escaped text string
+    """
+    if not text:
+        return "N/A"
+    # List of all special characters that need to be escaped in MarkdownV2
+    special_chars = r'_*[]()~`>#+-=|{}.!'
+    escaped_text = re.sub(f'([{re.escape(special_chars)}])', r'\\\1', str(text))
+    return escaped_text
 
 
     # ===============================================================
     # Market Data Handling
     # ===============================================================
 
-    def initialize_upstox(config, logger):
-        """
-        Initialize connection to Upstox API
-        
-        Args:
-            config: Configuration dictionary with API credentials
-            logger: Logger instance
-        
-        Returns:
-            Tuple of (MarketQuoteApi, ApiClient) if successful
-            Raises APIConnectionError if initialization fails
-        """
-        try:
-            api_client = ApiClient()
-            api_client.configuration.access_token = config.get('UPSTOX_ACCESS_TOKEN', '')
-            market_api = MarketQuoteApi(api_client)
-            logger.info("✅ Successfully initialized Upstox API client")
-            return market_api, api_client
-        except Exception as e:
-            logger.error(f"Error initializing Upstox API client: {e}")
-            raise APIConnectionError(f"Failed to connect to Upstox API: {str(e)}")
+def initialize_upstox(config, logger):
+    """
+    Initialize connection to Upstox API
+    
+    Args:
+        config: Configuration dictionary with API credentials
+        logger: Logger instance
+    
+    Returns:
+        Tuple of (MarketQuoteApi, ApiClient) if successful
+        Raises APIConnectionError if initialization fails
+    """
+    try:
+        api_client = ApiClient()
+        api_client.configuration.access_token = config.get('UPSTOX_ACCESS_TOKEN', '')
+        market_api = MarketQuoteApi(api_client)
+        logger.info("✅ Successfully initialized Upstox API client")
+        return market_api, api_client
+    except Exception as e:
+        logger.error(f"Error initializing Upstox API client: {e}")
+        raise APIConnectionError(f"Failed to connect to Upstox API: {str(e)}")
 
-    def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day", api_version="2.0", logger=None):
-        """
-        Fetch historical OHLC data for a given symbol using the Upstox API.
+def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day", api_version="2.0", logger=None):
+    """
+    Fetch historical OHLC data for a given symbol using the Upstox API.
+    
+    Args:
+        market_api: The initialized Upstox API client
+        symbol: The instrument symbol/key to fetch data for
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        interval: Time interval (1minute, 30minute, day, week, month)
+        api_version: API version to use
+        logger: Logger instance
         
-        Args:
-            market_api: The initialized Upstox API client
-            symbol: The instrument symbol/key to fetch data for
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
-            interval: Time interval (1minute, 30minute, day, week, month)
-            api_version: API version to use
-            logger: Logger instance
-            
-        Returns:
-            Pandas DataFrame with OHLCV data
-            
-        Raises:
-            DataFetchError: For API errors
-            EmptyDataError: When no data is returned
-            ValueError: For invalid parameters
-        """
+    Returns:
+        Pandas DataFrame with OHLCV data
+        
+    Raises:
+        DataFetchError: For API errors
+        EmptyDataError: When no data is returned
+        ValueError: For invalid parameters
+    """
+    try:
+        # Validate dates
         try:
-            # Validate dates
+            datetime.datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError as e:
+            raise ValueError(f"Invalid date format: {e}")
+        
+        # Validate interval
+        valid_intervals = ['1minute', '5minute', '30minute', 'day', 'week', 'month']
+        if interval not in valid_intervals:
+            raise ValueError(f"Invalid interval: {interval}. Must be one of {valid_intervals}")
+        
+        if logger:
+            logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date} with {interval} interval")
+        
+        # Create a HistoryApi instance
+        history_api = HistoryApi(market_api.api_client)
+        
+        # Implement retries for API calls
+        max_retries = 3
+        retry_delay = 2  # seconds
+        
+        last_exception = None
+        for attempt in range(max_retries):
             try:
-                datetime.datetime.strptime(start_date, "%Y-%m-%d")
-                datetime.datetime.strptime(end_date, "%Y-%m-%d")
-            except ValueError as e:
-                raise ValueError(f"Invalid date format: {e}")
-            
-            # Validate interval
-            valid_intervals = ['1minute', '5minute', '30minute', 'day', 'week', 'month']
-            if interval not in valid_intervals:
-                raise ValueError(f"Invalid interval: {interval}. Must be one of {valid_intervals}")
-            
-            if logger:
-                logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date} with {interval} interval")
-            
-            # Create a HistoryApi instance
-            history_api = HistoryApi(market_api.api_client)
-            
-            # Implement retries for API calls
-            max_retries = 3
-            retry_delay = 2  # seconds
-            
-            last_exception = None
-            for attempt in range(max_retries):
-                try:
-                    # Call the method on the HistoryApi instance
-                    response = history_api.get_historical_candle_data1(
-                        instrument_key=symbol,
-                        interval=interval,
-                        to_date=end_date,
-                        from_date=start_date,
-                        api_version=api_version
-                    )
+                # Call the method on the HistoryApi instance
+                response = history_api.get_historical_candle_data1(
+                    instrument_key=symbol,
+                    interval=interval,
+                    to_date=end_date,
+                    from_date=start_date,
+                    api_version=api_version
+                )
+                
+                # Extract data from the response
+                if hasattr(response, 'data') and hasattr(response.data, 'candles'):
+                    candles_data = response.data.candles
                     
-                    # Extract data from the response
-                    if hasattr(response, 'data') and hasattr(response.data, 'candles'):
-                        candles_data = response.data.candles
-                        
-                        # Create DataFrame with proper column names
-                        df = pd.DataFrame(candles_data, columns=[
-                            'timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'
-                        ])
-                        
-                        # Check if DataFrame is empty
-                        if df.empty:
-                            raise EmptyDataError(symbol, "Empty dataset returned by API")
-                        
-                        # Convert timestamp to datetime
-                        df['timestamp'] = pd.to_datetime(df['timestamp'])
-                        
-                        # Set timestamp as index
-                        df.set_index('timestamp', inplace=True)
-                        
-                        # Ensure numeric types for all columns
-                        numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'OI']
-                        for col in numeric_columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
-                        
-                        # Sort by timestamp (oldest to newest)
-                        df.sort_index(inplace=True)
-                        
-                        # Check for minimum data points required for pattern detection
-                        if len(df) < 50:
-                            if logger:
-                                logger.warning(f"Retrieved only {len(df)} candles for {symbol}, which may be insufficient for reliable pattern detection")
-                        
+                    # Create DataFrame with proper column names
+                    df = pd.DataFrame(candles_data, columns=[
+                        'timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'
+                    ])
+                    
+                    # Check if DataFrame is empty
+                    if df.empty:
+                        raise EmptyDataError(symbol, "Empty dataset returned by API")
+                    
+                    # Convert timestamp to datetime
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    
+                    # Set timestamp as index
+                    df.set_index('timestamp', inplace=True)
+                    
+                    # Ensure numeric types for all columns
+                    numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'OI']
+                    for col in numeric_columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    # Sort by timestamp (oldest to newest)
+                    df.sort_index(inplace=True)
+                    
+                    # Check for minimum data points required for pattern detection
+                    if len(df) < 50:
                         if logger:
-                            logger.info(f"Successfully fetched {len(df)} candles for {symbol}")
-                        return df
-                    else:
-                        err_msg = "No candle data returned by API"
-                        if hasattr(response, 'status'):
-                            err_msg += f" (API status: {response.status})"
-                        
-                        last_exception = DataFetchError(symbol, err_msg)
-                        
-                        if logger:
-                            logger.error(f"No candle data returned for {symbol}")
-                            if hasattr(response, 'status'):
-                                logger.error(f"API status: {response.status}")
-                            if hasattr(response, 'data'):
-                                logger.error(f"Response data type: {type(response.data)}")
-                        
-                        if attempt < max_retries - 1:
-                            if logger:
-                                logger.info(f"Retrying fetch for {symbol} (attempt {attempt+1}/{max_retries})...")
-                            time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        else:
-                            raise last_exception
-                except Exception as e:
-                    last_exception = DataFetchError(symbol, "API error", str(e))
+                            logger.warning(f"Retrieved only {len(df)} candles for {symbol}, which may be insufficient for reliable pattern detection")
+                    
                     if logger:
-                        logger.error(f"Error in attempt {attempt+1}/{max_retries} for {symbol}: {e}")
+                        logger.info(f"Successfully fetched {len(df)} candles for {symbol}")
+                    return df
+                else:
+                    err_msg = "No candle data returned by API"
+                    if hasattr(response, 'status'):
+                        err_msg += f" (API status: {response.status})"
+                    
+                    last_exception = DataFetchError(symbol, err_msg)
+                    
+                    if logger:
+                        logger.error(f"No candle data returned for {symbol}")
+                        if hasattr(response, 'status'):
+                            logger.error(f"API status: {response.status}")
+                        if hasattr(response, 'data'):
+                            logger.error(f"Response data type: {type(response.data)}")
                     
                     if attempt < max_retries - 1:
                         if logger:
-                            logger.info(f"Retrying fetch for {symbol}...")
+                            logger.info(f"Retrying fetch for {symbol} (attempt {attempt+1}/{max_retries})...")
                         time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
                     else:
-                        if logger:
-                            logger.error(traceback.format_exc())
                         raise last_exception
-            
-            # If we've exhausted retries
-            if last_exception:
-                raise last_exception
-            
-            # This should never happen, but as a fallback
-            raise DataFetchError(symbol, "Failed to fetch data after all retry attempts")
-                    
-        except (DataFetchError, EmptyDataError) as e:
-            # Re-raise these as they're already our custom exceptions
-            raise
-        except Exception as e:
-            if logger:
-                logger.error(f"Error fetching historical OHLC data: {e}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-            raise DataFetchError(symbol, "Unexpected error", str(e))
+            except Exception as e:
+                last_exception = DataFetchError(symbol, "API error", str(e))
+                if logger:
+                    logger.error(f"Error in attempt {attempt+1}/{max_retries} for {symbol}: {e}")
+                
+                if attempt < max_retries - 1:
+                    if logger:
+                        logger.info(f"Retrying fetch for {symbol}...")
+                    time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                else:
+                    if logger:
+                        logger.error(traceback.format_exc())
+                    raise last_exception
+        
+        # If we've exhausted retries
+        if last_exception:
+            raise last_exception
+        
+        # This should never happen, but as a fallback
+        raise DataFetchError(symbol, "Failed to fetch data after all retry attempts")
+                
+    except (DataFetchError, EmptyDataError) as e:
+        # Re-raise these as they're already our custom exceptions
+        raise
+    except Exception as e:
+        if logger:
+            logger.error(f"Error fetching historical OHLC data: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        raise DataFetchError(symbol, "Unexpected error", str(e))
 
 
     # ===============================================================
