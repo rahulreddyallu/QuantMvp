@@ -4023,6 +4023,27 @@ class TradingParameters:
     # ===============================================================
     # System and Connection Test Functions
     # ===============================================================
+    def test_upstox_connection(config):
+        """
+        Test connection to Upstox API (compatibility version)
+        
+        Args:
+            config: Configuration dictionary with API credentials
+        
+        Returns:
+            True if connection is successful, False otherwise
+        """
+        # Set up logger
+        logger = setup_logging(config)
+        logger.info("Testing Upstox API connection...")
+        
+        try:
+            market_api, api_client = initialize_upstox(config, logger)
+            logger.info("✅ Successfully initialized Upstox API client")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error connecting to Upstox API: {str(e)}")
+            return False
 
     def test_upstox_connection(config, logger=None):
         """
