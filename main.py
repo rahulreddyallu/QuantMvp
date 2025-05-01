@@ -47,7 +47,15 @@ logger = logging.getLogger(__name__)
 SYMBOL_TO_ISIN = {info["symbol"]: isin for isin, info in STOCK_INFO.items()}
 
 def get_stock_info_by_key(instrument_key):
-    """Get stock info from instrument key (e.g., NSE_EQ|INE117A01022)"""
+    """
+    Get stock info from instrument key (e.g., NSE_EQ|INE117A01022)
+    
+    Args:
+        instrument_key: The instrument key to lookup
+        
+    Returns:
+        Dictionary with stock information
+    """
     parts = instrument_key.split('|')
     if len(parts) == 2:
         isin = parts[1]
@@ -60,7 +68,15 @@ def get_stock_info_by_key(instrument_key):
     return {"name": "", "industry": "", "symbol": instrument_key, "series": ""}
 
 def escape_telegram_markdown(text):
-    """Escape special characters for Telegram MarkdownV2 formatting."""
+    """
+    Escape special characters for Telegram MarkdownV2 formatting.
+    
+    Args:
+        text: The text to escape
+        
+    Returns:
+        Escaped text string
+    """
     if not text:
         return "N/A"
     # List of all special characters that need to be escaped in MarkdownV2
@@ -70,7 +86,12 @@ def escape_telegram_markdown(text):
 
 # Initialize Upstox client
 def initialize_upstox():
-    """Initialize connection to Upstox API"""
+    """
+    Initialize connection to Upstox API
+    
+    Returns:
+        MarketQuoteApi object if successful, None otherwise
+    """
     try:
         api_client = ApiClient()
         api_client.configuration.access_token = UPSTOX_ACCESS_TOKEN
@@ -83,7 +104,16 @@ def initialize_upstox():
 
 # Telegram notification function with exponential backoff retry mechanism
 async def send_telegram_message(message, retry_attempts=5):
-    """Send message to Telegram with retry mechanism"""
+    """
+    Send message to Telegram with retry mechanism
+    
+    Args:
+        message: The message text to send
+        retry_attempts: Number of retry attempts
+        
+    Returns:
+        True if message was sent successfully, False otherwise
+    """
     if ENABLE_TELEGRAM_ALERTS:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         delay = 1  # Initial delay in seconds
@@ -91,6 +121,7 @@ async def send_telegram_message(message, retry_attempts=5):
             try:
                 # Use MarkdownV2 for formatted messages
                 await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='MarkdownV2')
+                await bot.session.close()  # Ensure the session is properly closed
                 return True
             except Exception as e:
                 if "Too Many Requests" in str(e):
@@ -101,12 +132,18 @@ async def send_telegram_message(message, retry_attempts=5):
                     logger.error(f"Error sending Telegram message: {e}. Retrying in {delay} seconds.")
                     await asyncio.sleep(delay)
                     delay *= 2  # Exponential backoff
+        
         await bot.session.close()  # Ensure the session is properly closed
         return False
     return False
 
 def send_startup_notification():
-    """Send a startup notification via Telegram"""
+    """
+    Send a startup notification via Telegram
+    
+    Returns:
+        True if notification was sent successfully, False otherwise
+    """
     try:
         loop = asyncio.get_event_loop()
         # Escape the entire startup message
@@ -126,9 +163,9 @@ New Features:
 
 Bot is now actively monitoring for trading signals.
         """)
-        loop.run_until_complete(send_telegram_message(message))
+        result = loop.run_until_complete(send_telegram_message(message))
         logger.info("Startup notification sent successfully")
-        return True
+        return result
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
         return False
@@ -145,7 +182,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
         interval: Time interval (1minute, 30minute, day, week, month)
         
     Returns:
-        Pandas DataFrame with OHLCV data
+        Pandas DataFrame with OHLCV data or empty DataFrame if failed
     """
     try:
         # Validate dates
@@ -230,7 +267,8 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
                     logger.info(f"Retrying fetch for {symbol}...")
                     time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
                 else:
-                    raise
+                    logger.error(traceback.format_exc())
+                    return pd.DataFrame()
                 
     except Exception as e:
         logger.error(f"Error fetching historical OHLC data: {e}")
@@ -241,7 +279,17 @@ class CandlestickPatterns:
     """Complete candlestick pattern detection with precise validation criteria"""
     
     def __init__(self, df):
-        """Initialize with DataFrame containing OHLCV data"""
+        """
+        Initialize with DataFrame containing OHLCV data
+        
+        Args:
+            df: DataFrame with OHLCV data
+        """
+        # Ensure we have a valid DataFrame
+        if df is None or len(df) == 0:
+            raise ValueError("Empty DataFrame provided")
+            
+        # Make a deep copy to avoid modifying the original
         self.df = df.copy()
         
         # Calculate body sizes and shadows for all candles
@@ -251,7 +299,9 @@ class CandlestickPatterns:
         self._calculate_trend_context()
     
     def _calculate_candle_dimensions(self):
-        """Calculate candle body, upper shadow, and lower shadow sizes"""
+        """
+        Calculate candle body, upper shadow, and lower shadow sizes
+        """
         # Get body size and direction
         self.df['body_size'] = abs(self.df['Close'] - self.df['Open'])
         self.df['candle_range'] = self.df['High'] - self.df['Low']
@@ -279,20 +329,52 @@ class CandlestickPatterns:
         
         # Handle volume analysis
         if 'Volume' in self.df.columns:
+            # Calculate volume moving average
             self.df['volume_ma20'] = self.df['Volume'].rolling(window=20).mean()
+            
+            # Flag high volume candles (50% above average)
             self.df['high_volume'] = self.df['Volume'] > (self.df['volume_ma20'] * 1.5)
+            
+            # Calculate volume ratio to average
+            self.df['volume_ratio'] = self.df['Volume'] / self.df['volume_ma20'].replace(0, np.nan)
     
     def _calculate_trend_context(self):
-        """Calculate trend indicators for pattern context"""
+        """
+        Calculate trend indicators for pattern context with volume confirmation
+        """
         # Short-term trend (5-day)
         self.df['ma5'] = self.df['Close'].rolling(window=5).mean()
         
         # Medium-term trend (20-day)
         self.df['ma20'] = self.df['Close'].rolling(window=20).mean()
         
-        # Trend determination
-        self.df['uptrend'] = (self.df['ma5'] > self.df['ma5'].shift(3)) & (self.df['Close'] > self.df['ma20'])
-        self.df['downtrend'] = (self.df['ma5'] < self.df['ma5'].shift(3)) & (self.df['Close'] < self.df['ma20'])
+        # Basic trend determination
+        price_uptrend = (self.df['ma5'] > self.df['ma5'].shift(3)) & (self.df['Close'] > self.df['ma20'])
+        price_downtrend = (self.df['ma5'] < self.df['ma5'].shift(3)) & (self.df['Close'] < self.df['ma20'])
+        
+        # Volume confirmation if available
+        if 'Volume' in self.df.columns:
+            # Calculate volume trend (increasing or decreasing volume)
+            self.df['volume_ma5'] = self.df['Volume'].rolling(window=5).mean()
+            volume_increasing = self.df['volume_ma5'] > self.df['volume_ma5'].shift(3)
+            
+            # Strong uptrend: Price rising with increasing volume
+            self.df['uptrend'] = price_uptrend & (
+                volume_increasing | 
+                # Or high volume on up days
+                (self.df['high_volume'] & self.df['is_bullish'])
+            )
+            
+            # Strong downtrend: Price falling with increasing volume
+            self.df['downtrend'] = price_downtrend & (
+                volume_increasing | 
+                # Or high volume on down days
+                (self.df['high_volume'] & ~self.df['is_bullish'])
+            )
+        else:
+            # If no volume data, use just price
+            self.df['uptrend'] = price_uptrend
+            self.df['downtrend'] = price_downtrend
     
     def detect_marubozu(self):
         """
@@ -301,6 +383,12 @@ class CandlestickPatterns:
         Returns:
             Dictionary with detected patterns and their indices
         """
+        # Ensure we have data
+        if len(self.df) == 0:
+            return {'marubozu': pd.Series(dtype=bool), 
+                    'bullish_marubozu': pd.Series(dtype=bool), 
+                    'bearish_marubozu': pd.Series(dtype=bool)}
+            
         # Allow for small shadows (≤5% of candle length)
         shadow_threshold = 0.05
         
@@ -334,6 +422,10 @@ class CandlestickPatterns:
         Returns:
             Series with True at indices where Doji patterns are detected
         """
+        # Ensure we have data
+        if len(self.df) == 0:
+            return pd.Series(dtype=bool)
+            
         # Doji criteria: open and close are virtually equal
         body_threshold = 0.1  # |Open - Close| ≤ 0.1% of the trading range
         
@@ -351,6 +443,10 @@ class CandlestickPatterns:
         Returns:
             Series with True at indices where Spinning Tops are detected
         """
+        # Ensure we have data
+        if len(self.df) == 0:
+            return pd.Series(dtype=bool)
+            
         # Spinning Top criteria
         body_threshold = 0.25    # Body ≤ 25% of the total range
         shadow_threshold = 0.35  # Shadows ≥ 35% of the total range
@@ -371,6 +467,10 @@ class CandlestickPatterns:
         Returns:
             Series with True at indices where Paper Umbrella patterns are detected
         """
+        # Ensure we have data
+        if len(self.df) == 0:
+            return pd.Series(dtype=bool)
+            
         # Paper Umbrella criteria
         lower_shadow_ratio = 2   # Lower shadow ≥ 2x the real body
         upper_shadow_threshold = 0.1  # Little to no upper shadow
@@ -390,6 +490,10 @@ class CandlestickPatterns:
         Returns:
             Series with True at indices where Hammer patterns are detected
         """
+        # Ensure we have data and sufficient history
+        if len(self.df) < 5:
+            return pd.Series(False, index=self.df.index)
+            
         # Hammer criteria
         lower_shadow_ratio = 2   # Lower shadow ≥ 2x the real body
         upper_shadow_threshold = 0.1  # Little to no upper shadow
@@ -416,6 +520,10 @@ class CandlestickPatterns:
         Returns:
             Series with True at indices where Hanging Man patterns are detected
         """
+        # Ensure we have data and sufficient history
+        if len(self.df) < 5:
+            return pd.Series(False, index=self.df.index)
+            
         # Hanging Man criteria (similar to hammer but occurs after uptrend)
         lower_shadow_ratio = 2   # Lower shadow ≥ 2x the real body
         upper_shadow_threshold = 0.1  # Little to no upper shadow
@@ -442,6 +550,10 @@ class CandlestickPatterns:
         Returns:
             Series with True at indices where Shooting Star patterns are detected
         """
+        # Ensure we have data and sufficient history
+        if len(self.df) < 5:
+            return pd.Series(False, index=self.df.index)
+            
         # Shooting Star criteria
         upper_shadow_ratio = 2   # Upper shadow ≥ 2x the real body
         lower_shadow_threshold = 0.1  # Little to no lower shadow
@@ -473,11 +585,15 @@ class CandlestickPatterns:
         bearish_engulfing = pd.Series(False, index=self.df.index)
         
         # We need at least 2 candles to detect engulfing patterns
-        if len(self.df) < 2:
+        if len(self.df) < 6:  # Need at least 6 candles (5 for trend context + current)
             return {'bullish_engulfing': bullish_engulfing, 'bearish_engulfing': bearish_engulfing}
         
         # Iterate through DataFrame (starting from second candle)
         for i in range(1, len(self.df)):
+            # Ensure we don't go out of bounds
+            if i >= len(self.df):
+                break
+                
             # Get current and previous candle
             curr = self.df.iloc[i]
             prev = self.df.iloc[i-1]
@@ -517,11 +633,15 @@ class CandlestickPatterns:
         bearish_harami = pd.Series(False, index=self.df.index)
         
         # We need at least 2 candles to detect harami patterns
-        if len(self.df) < 2:
+        if len(self.df) < 6:  # Need at least 6 candles (5 for trend context + current)
             return {'bullish_harami': bullish_harami, 'bearish_harami': bearish_harami}
         
         # Iterate through DataFrame (starting from second candle)
         for i in range(1, len(self.df)):
+            # Ensure we don't go out of bounds
+            if i >= len(self.df):
+                break
+                
             # Get current and previous candle
             curr = self.df.iloc[i]
             prev = self.df.iloc[i-1]
@@ -565,12 +685,16 @@ class CandlestickPatterns:
         # Initialize result Series
         piercing_pattern = pd.Series(False, index=self.df.index)
         
-        # We need at least 2 candles
-        if len(self.df) < 2:
+        # We need at least 2 candles to detect piercing patterns
+        if len(self.df) < 6:  # Need at least 6 candles (5 for trend context + current)
             return piercing_pattern
         
         # Iterate through DataFrame (starting from second candle)
         for i in range(1, len(self.df)):
+            # Ensure we don't go out of bounds
+            if i >= len(self.df):
+                break
+                
             # Get current and previous candle
             curr = self.df.iloc[i]
             prev = self.df.iloc[i-1]
@@ -598,12 +722,16 @@ class CandlestickPatterns:
         # Initialize result Series
         dark_cloud_cover = pd.Series(False, index=self.df.index)
         
-        # We need at least 2 candles
-        if len(self.df) < 2:
+        # We need at least 2 candles to detect dark cloud cover
+        if len(self.df) < 6:  # Need at least 6 candles (5 for trend context + current)
             return dark_cloud_cover
         
         # Iterate through DataFrame (starting from second candle)
         for i in range(1, len(self.df)):
+            # Ensure we don't go out of bounds
+            if i >= len(self.df):
+                break
+                
             # Get current and previous candle
             curr = self.df.iloc[i]
             prev = self.df.iloc[i-1]
@@ -631,12 +759,16 @@ class CandlestickPatterns:
         # Initialize result Series
         morning_star = pd.Series(False, index=self.df.index)
         
-        # We need at least 3 candles
-        if len(self.df) < 3:
+        # We need at least 3 candles to detect morning star
+        if len(self.df) < 7:  # Need at least 7 candles (5 for trend context + 2 previous)
             return morning_star
         
         # Iterate through DataFrame (starting from third candle)
         for i in range(2, len(self.df)):
+            # Ensure we don't go out of bounds
+            if i >= len(self.df):
+                break
+                
             # Get three consecutive candles
             first = self.df.iloc[i-2]  # First day (bearish)
             second = self.df.iloc[i-1]  # Second day (small body)
@@ -666,12 +798,16 @@ class CandlestickPatterns:
         # Initialize result Series
         evening_star = pd.Series(False, index=self.df.index)
         
-        # We need at least 3 candles
-        if len(self.df) < 3:
+        # We need at least 3 candles to detect evening star
+        if len(self.df) < 7:  # Need at least 7 candles (5 for trend context + 2 previous)
             return evening_star
         
         # Iterate through DataFrame (starting from third candle)
         for i in range(2, len(self.df)):
+            # Ensure we don't go out of bounds
+            if i >= len(self.df):
+                break
+                
             # Get three consecutive candles
             first = self.df.iloc[i-2]  # First day (bullish)
             second = self.df.iloc[i-1]  # Second day (small body)
@@ -774,11 +910,50 @@ class CandlestickPatterns:
             'bearish_harami': {'signal': 'SELL', 'strength': 3},
             'dark_cloud_cover': {'signal': 'SELL', 'strength': 3},
             'evening_star': {'signal': 'SELL', 'strength': 4},
+            
+            # Neutral patterns with context signals
+            'doji': {'signal': 'NEUTRAL', 'strength': 1},
+            'spinning_tops': {'signal': 'NEUTRAL', 'strength': 1}
         }
+        
+        # Add market insight for neutral patterns
+        if latest_patterns.get('doji', False):
+            # Doji indicates indecision - signal depends on trend context
+            if self.df['uptrend'].iloc[-1]:
+                signals.append({
+                    'pattern': 'doji',
+                    'signal': 'CAUTION',
+                    'strength': 2,
+                    'note': 'Doji in uptrend suggests potential reversal'
+                })
+            elif self.df['downtrend'].iloc[-1]:
+                signals.append({
+                    'pattern': 'doji',
+                    'signal': 'WATCH',
+                    'strength': 2,
+                    'note': 'Doji in downtrend suggests potential reversal'
+                })
+        
+        if latest_patterns.get('spinning_tops', False):
+            # Spinning tops also indicate indecision
+            if self.df['uptrend'].iloc[-1]:
+                signals.append({
+                    'pattern': 'spinning_tops',
+                    'signal': 'CAUTION',
+                    'strength': 1,
+                    'note': 'Spinning Top in uptrend suggests weakening momentum'
+                })
+            elif self.df['downtrend'].iloc[-1]:
+                signals.append({
+                    'pattern': 'spinning_tops',
+                    'signal': 'WATCH',
+                    'strength': 1,
+                    'note': 'Spinning Top in downtrend suggests slowing momentum'
+                })
         
         # Create signals based on detected patterns
         for pattern, is_detected in latest_patterns.items():
-            if is_detected and pattern in pattern_signals:
+            if is_detected and pattern in pattern_signals and pattern_signals[pattern]['signal'] != 'NEUTRAL':
                 signals.append({
                     'pattern': pattern,
                     'signal': pattern_signals[pattern]['signal'],
@@ -812,6 +987,9 @@ async def analyze_and_generate_signals():
     """
     Fetches historical data for symbols in STOCK_LIST, performs candlestick pattern analysis,
     and generates trading signals.
+    
+    Returns:
+        True if analysis completed successfully, False otherwise
     """
     # Log function start with current UTC time
     current_datetime = datetime.datetime.now()
@@ -830,7 +1008,7 @@ async def analyze_and_generate_signals():
     market_api = initialize_upstox()
     if not market_api:
         logger.error("Failed to initialize Upstox client")
-        return
+        return False
     
     # Track overall statistics
     successful_analyses = 0
@@ -973,19 +1151,27 @@ Generated: {datetime.datetime.now().strftime("%b-%d %H:%M")}
     logger.info(f"Failed analyses: {failed_analyses}")
     logger.info(f"Total signals generated: {total_signals} ({buy_signals} BUY, {sell_signals} SELL)")
     logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    
+    return True
 
 def run_trading_signals():
-    """Run the trading signal generation process"""
+    """
+    Run the trading signal generation process
+    
+    Returns:
+        True if successful, False otherwise
+    """
     start_time = time.time()
     logger.info("Starting candlestick pattern analysis")
     
     try:
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(analyze_and_generate_signals())
+        result = loop.run_until_complete(analyze_and_generate_signals())
         
         # Log completion
         elapsed_time = time.time() - start_time
         logger.info(f"Completed candlestick pattern analysis in {elapsed_time:.2f} seconds")
+        return result
     
     except Exception as e:
         logger.error(f"Error in candlestick pattern analysis: {str(e)}")
@@ -1006,9 +1192,16 @@ Please check the logs for more details.
             loop.run_until_complete(send_telegram_message(error_message))
         except Exception as notification_err:
             logger.error(f"Failed to send error notification: {notification_err}")
+        
+        return False
 
 def test_upstox_connection():
-    """Test connection to Upstox API"""
+    """
+    Test connection to Upstox API
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
     logger.info("Testing Upstox API connection...")
     
     try:
@@ -1024,7 +1217,12 @@ def test_upstox_connection():
         return False
 
 def test_telegram_connection():
-    """Test connection to Telegram API"""
+    """
+    Test connection to Telegram API
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
     logger.info("Testing Telegram API connection...")
     
     try:
@@ -1044,7 +1242,12 @@ def test_telegram_connection():
         return False
 
 def schedule_analysis():
-    """Schedule the analysis based on config"""
+    """
+    Schedule the analysis based on config
+    
+    Returns:
+        None (runs indefinitely)
+    """
     # Schedule for specific hours of the day based on market hours
     for hour in range(9, 16):  # 9 AM to 3 PM
         schedule.every().monday.at(f"{hour:02d}:00").do(run_trading_signals)
@@ -1073,7 +1276,12 @@ def schedule_analysis():
         time.sleep(60)
 
 def main():
-    """Main function to run the Candlestick Pattern Bot"""
+    """
+    Main function to run the Candlestick Pattern Bot
+    
+    Returns:
+        0 for successful execution, 1 for errors
+    """
     logger.info("=" * 70)
     logger.info("Candlestick Pattern Detection Bot - Starting Up")
     logger.info("Advanced Pattern Recognition - Version 3.0")
@@ -1085,7 +1293,7 @@ def main():
     
     if not upstox_connected:
         logger.error("Cannot proceed without Upstox API connection")
-        return
+        return 1
     
     if not telegram_connected:
         logger.warning("Telegram connection failed, proceeding without notifications")
@@ -1099,11 +1307,14 @@ def main():
     # Schedule future runs
     try:
         schedule_analysis()
+        return 0
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
+        return 0
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         logger.error(traceback.format_exc())
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
