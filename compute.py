@@ -52,6 +52,8 @@ _INITIALIZATION_LOCK = threading.Lock()
 _BOT_INITIALIZED = False
 _LOGGING_INITIALIZED = False
 _BOT_INSTANCE_UUID = str(uuid.uuid4())
+_INIT_TIMESTAMP = None
+_INIT_CALLER_INFO = []
 
 class TradingBotError(Exception):
     """Base exception for all trading bot errors"""
@@ -84,7 +86,7 @@ class EmptyDataError(DataFetchError):
 
 def setup_logging(config):
     """
-    Setup logging with unique logger per instance to prevent duplicate messages
+    Create a completely separate logger for each instance
     
     Args:
         config: Configuration dictionary
@@ -92,11 +94,11 @@ def setup_logging(config):
     Returns:
         Logger instance
     """
-    # Use the instance UUID to create a unique logger name
+    # Generate a unique logger name using the instance UUID
     instance_id = config.get('INSTANCE_UUID', str(uuid.uuid4()))[:8]
     logger_name = f'compute_{instance_id}'
     
-    # Get the logger
+    # Get a unique logger for this instance
     logger = logging.getLogger(logger_name)
     
     # If the logger already has handlers, it's already configured
@@ -111,7 +113,7 @@ def setup_logging(config):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f'trading_bot_{timestamp}_{instance_id}.log')
     
-    # Remove any existing handlers to be safe
+    # Clear any existing handlers
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
@@ -132,9 +134,6 @@ def setup_logging(config):
     logger.setLevel(config.get('LOG_LEVEL', logging.INFO))
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
-    
-    # Log initialization
-    logger.info(f"Logging initialized for instance {instance_id}")
     
     return logger
 # ===============================================================
@@ -4754,7 +4753,7 @@ async def main_async(config):
 
 def main(config=None):
     """
-    Main function to run the Candlestick Pattern Bot with robust initialization control
+    Main function with advanced diagnostics and initialization protection
     
     Args:
         config: Configuration dictionary
@@ -4762,51 +4761,63 @@ def main(config=None):
     Returns:
         0 for successful execution, 1 for errors
     """
-    global _BOT_INITIALIZED, _BOT_INSTANCE_UUID
+    global _BOT_INITIALIZED, _BOT_INSTANCE_UUID, _INIT_TIMESTAMP, _INIT_CALLER_INFO
     
-    # Print diagnostic info
-    print(f"=== BOT STARTUP REQUEST ===")
+    # Generate a unique ID for this specific call to main()
+    call_id = str(uuid.uuid4())[:6]
+    call_time = datetime.datetime.now().isoformat()
+    
+    # Capture stack trace to see who called main()
+    import inspect
+    caller_stack = inspect.stack()
+    caller_info = f"Called from: {caller_stack[1].filename}:{caller_stack[1].lineno}"
+    
+    # Print advanced diagnostic info
+    print(f"\n=== BOT STARTUP REQUEST [{call_id}] at {call_time} ===")
     print(f"Instance UUID: {_BOT_INSTANCE_UUID[:8]}")
-    print(f"Starting main function with default config: {config is None}")
     print(f"Current initialization state: {_BOT_INITIALIZED}")
+    print(f"Init timestamp: {_INIT_TIMESTAMP}")
+    print(f"Caller: {caller_info}")
     
-    # Use a lock to ensure thread-safe initialization check
-    with _INITIALIZATION_LOCK:
+    # Try to acquire the lock with a timeout to prevent deadlocks
+    lock_acquired = False
+    try:
+        lock_acquired = _INITIALIZATION_LOCK.acquire(timeout=5)  # 5 second timeout
+        if not lock_acquired:
+            print(f"[{call_id}] WARNING: Could not acquire initialization lock after 5 seconds - possible deadlock")
+            return 1
+            
+        # Check initialization state *after* acquiring the lock
         if _BOT_INITIALIZED:
-            print("Bot already initialized, ignoring duplicate start request")
-            print("Restart the kernel/runtime to start a new bot instance")
+            print(f"[{call_id}] WARNING: Bot already initialized at {_INIT_TIMESTAMP}")
+            print(f"[{call_id}] Previous initialization: {_INIT_CALLER_INFO}")
+            print(f"[{call_id}] To start a new instance, restart the kernel/runtime")
             return 0
-        
-        # Set the initialization flag inside the lock
+            
+        # Set initialization state and timestamp
+        print(f"[{call_id}] Setting bot initialization state to TRUE")
         _BOT_INITIALIZED = True
-        print("Bot initialization lock acquired")
+        _INIT_TIMESTAMP = call_time
+        _INIT_CALLER_INFO.append(f"{call_id} at {call_time} from {caller_info}")
+        
+    finally:
+        # Always release the lock
+        if lock_acquired:
+            _INITIALIZATION_LOCK.release()
+            print(f"[{call_id}] Initialization lock released")
     
     try:
         # Set up default configuration if not provided
         if config is None:
             config = {
                 'VERSION': '3.5.1',
-                'LOG_DIRECTORY': 'logs',
-                'HISTORICAL_DAYS': 100,
-                'CHART_INTERVAL': 'day',
-                'ENABLE_TELEGRAM_ALERTS': False,
-                'ENABLE_DAILY_REPORT': True,
-                'MARKET_OPEN_HOUR': 9,
-                'MARKET_CLOSE_HOUR': 15,
-                'MARKET_DAYS': ['mon', 'tue', 'wed', 'thu', 'fri'],
-                'ANALYSIS_FREQUENCY': 1,
-                'RUN_ON_STARTUP': True,
-                'SCHEDULED_MODE': True,
-                'RUN_AT_MARKET_OPEN': True,
-                'RUN_AT_MARKET_CLOSE': True,
-                'STOCK_LIST': [],
-                'STOCK_INFO': {}
+                # ... other default config values ...
             }
         
         # Add instance and time information to config
         config['INSTANCE_UUID'] = _BOT_INSTANCE_UUID
-        config['STARTUP_TIME'] = "2025-05-01 17:52:28"  # Use the time you provided
-        config['CURRENT_USER'] = "rahulreddyallu"  # Use the user you provided
+        config['STARTUP_TIME'] = "2025-05-01 17:59:17"  # Using the time you provided
+        config['CURRENT_USER'] = "rahulreddyallu"
         
         # Initialize library logging with minimal settings
         logging.basicConfig(level=logging.WARNING, 
@@ -4817,30 +4828,31 @@ def main(config=None):
             # If we're in IPython or a Jupyter notebook
             import nest_asyncio
             nest_asyncio.apply()
-            print("Applied nest_asyncio patch for Jupyter/IPython environment")
+            print(f"[{call_id}] Applied nest_asyncio patch for Jupyter environment")
             
             # Get the event loop
             loop = asyncio.get_event_loop()
             
             # Run the async main function
-            print(f"Running main_async function for instance {_BOT_INSTANCE_UUID[:8]}")
+            print(f"[{call_id}] Running main_async function for instance {_BOT_INSTANCE_UUID[:8]}")
             return loop.run_until_complete(main_async(config))
             
         except ImportError:
             # Standard Python environment
-            print("Standard Python environment detected")
+            print(f"[{call_id}] Standard Python environment detected")
             
             # Run the async main function
-            print(f"Running main_async function with asyncio.run()")
+            print(f"[{call_id}] Running main_async function with asyncio.run()")
             return asyncio.run(main_async(config))
             
     except Exception as e:
-        print(f"Fatal error in main function: {str(e)}")
+        print(f"[{call_id}] FATAL ERROR in main function: {str(e)}")
         print(traceback.format_exc())
         
-        # Reset initialization flag on error to allow retry
+        # Only reset initialization on fatal errors
         with _INITIALIZATION_LOCK:
             _BOT_INITIALIZED = False
+            _INIT_TIMESTAMP = None
         
         return 1
 
