@@ -4020,124 +4020,124 @@ class TradingParameters:
         return analysis_results
 
 
-    # ===============================================================
-    # System and Connection Test Functions
-    # ===============================================================
-    def test_upstox_connection(config):
-        """
-        Test connection to Upstox API (compatibility version)
+# ===============================================================
+# System and Connection Test Functions
+# ===============================================================
+def test_upstox_connection(config):
+    """
+    Test connection to Upstox API (compatibility version)
+    
+    Args:
+        config: Configuration dictionary with API credentials
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
+    # Set up logger
+    logger = setup_logging(config)
+    logger.info("Testing Upstox API connection...")
+    
+    try:
+        market_api, api_client = initialize_upstox(config, logger)
+        logger.info("✅ Successfully initialized Upstox API client")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error connecting to Upstox API: {str(e)}")
+        return False
+
+def test_upstox_connection(config, logger=None):
+    """
+    Test connection to Upstox API
+    
+    Args:
+        config: Configuration dictionary with API credentials
+        logger: Logger instance
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
+    logger.info("Testing Upstox API connection...")
+    
+    try:
+        market_api, api_client = initialize_upstox(config, logger)
+        logger.info("✅ Successfully initialized Upstox API client")
+        return True
+    except APIConnectionError as e:
+        logger.error(f"❌ Error connecting to Upstox API: {str(e)}")
+        return False
+
+async def test_telegram_connection(config, logger):
+    """
+    Test connection to Telegram API
+    
+    Args:
+        config: Configuration dictionary with Telegram credentials
+        logger: Logger instance
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
+    logger.info("Testing Telegram API connection...")
+    
+    if not config.get('ENABLE_TELEGRAM_ALERTS', False):
+        logger.info("❌ Telegram notifications are disabled in config")
+        return False
+    
+    try:
+        # Escape the test message properly for MarkdownV2
+        test_message = escape_telegram_markdown("🔍 Test Message - Candlestick Pattern Bot connection test successful!")
+        result = await send_telegram_message(test_message, config, logger)
         
-        Args:
-            config: Configuration dictionary with API credentials
-        
-        Returns:
-            True if connection is successful, False otherwise
-        """
-        # Set up logger
-        logger = setup_logging(config)
-        logger.info("Testing Upstox API connection...")
-        
-        try:
-            market_api, api_client = initialize_upstox(config, logger)
-            logger.info("✅ Successfully initialized Upstox API client")
+        if result:
+            logger.info("✅ Successfully sent test message to Telegram")
             return True
-        except Exception as e:
-            logger.error(f"❌ Error connecting to Upstox API: {str(e)}")
+        else:
+            logger.error("❌ Failed to send test message to Telegram")
             return False
+    except Exception as e:
+        logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
+        return False
 
-    def test_upstox_connection(config, logger=None):
-        """
-        Test connection to Upstox API
+async def send_startup_notification(config, logger):
+    """
+    Send a startup notification via Telegram
+    
+    Args:
+        config: Configuration dictionary with Telegram credentials
+        logger: Logger instance
+    
+    Returns:
+        True if notification was sent successfully, False otherwise
+    """
+    if not config.get('ENABLE_TELEGRAM_ALERTS', False):
+        return False
         
-        Args:
-            config: Configuration dictionary with API credentials
-            logger: Logger instance
-        
-        Returns:
-            True if connection is successful, False otherwise
-        """
-        logger.info("Testing Upstox API connection...")
-        
-        try:
-            market_api, api_client = initialize_upstox(config, logger)
-            logger.info("✅ Successfully initialized Upstox API client")
-            return True
-        except APIConnectionError as e:
-            logger.error(f"❌ Error connecting to Upstox API: {str(e)}")
-            return False
+    try:
+        # Escape the entire startup message
+        message = escape_telegram_markdown(f"""
+🚀 Enhanced Trading Signal Bot Started 🚀
 
-    async def test_telegram_connection(config, logger):
-        """
-        Test connection to Telegram API
-        
-        Args:
-            config: Configuration dictionary with Telegram credentials
-            logger: Logger instance
-        
-        Returns:
-            True if connection is successful, False otherwise
-        """
-        logger.info("Testing Telegram API connection...")
-        
-        if not config.get('ENABLE_TELEGRAM_ALERTS', False):
-            logger.info("❌ Telegram notifications are disabled in config")
-            return False
-        
-        try:
-            # Escape the test message properly for MarkdownV2
-            test_message = escape_telegram_markdown("🔍 Test Message - Candlestick Pattern Bot connection test successful!")
-            result = await send_telegram_message(test_message, config, logger)
-            
-            if result:
-                logger.info("✅ Successfully sent test message to Telegram")
-                return True
-            else:
-                logger.error("❌ Failed to send test message to Telegram")
-                return False
-        except Exception as e:
-            logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
-            return False
+Version: {config.get('VERSION', '3.5.1')}
+Started at: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Analysis Frequency: Every {config.get('ANALYSIS_FREQUENCY', 1)} hour(s)
+Stocks Monitored: {len(config.get('STOCK_LIST', []))} stocks
 
-    async def send_startup_notification(config, logger):
-        """
-        Send a startup notification via Telegram
+Key Features:
+• Complete candlestick pattern recognition system
+• 20+ technical indicators implemented
+• Advanced trend context validation
+• Enhanced signal confirmation algorithm
+• Full trading checklist evaluation
+
+Bot is now actively monitoring for trading signals.
+        """)
         
-        Args:
-            config: Configuration dictionary with Telegram credentials
-            logger: Logger instance
-        
-        Returns:
-            True if notification was sent successfully, False otherwise
-        """
-        if not config.get('ENABLE_TELEGRAM_ALERTS', False):
-            return False
-            
-        try:
-            # Escape the entire startup message
-            message = escape_telegram_markdown(f"""
-    🚀 Enhanced Trading Signal Bot Started 🚀
-
-    Version: {config.get('VERSION', '3.5.1')}
-    Started at: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    Analysis Frequency: Every {config.get('ANALYSIS_FREQUENCY', 1)} hour(s)
-    Stocks Monitored: {len(config.get('STOCK_LIST', []))} stocks
-
-    Key Features:
-    • Complete candlestick pattern recognition system
-    • 20+ technical indicators implemented
-    • Advanced trend context validation
-    • Enhanced signal confirmation algorithm
-    • Full trading checklist evaluation
-
-    Bot is now actively monitoring for trading signals.
-            """)
-            
-            result = await send_telegram_message(message, config, logger)
-            logger.info("Startup notification sent successfully")
-            return result
-        except Exception as e:
-            logger.error(f"Failed to send startup notification: {str(e)}")
-            return False
+        result = await send_telegram_message(message, config, logger)
+        logger.info("Startup notification sent successfully")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to send startup notification: {str(e)}")
+        return False
 
 
     # ===============================================================
