@@ -4024,7 +4024,7 @@ class TradingParameters:
     # System and Connection Test Functions
     # ===============================================================
 
-    def test_upstox_connection(config, logger):
+    def test_upstox_connection(config, logger=None):
         """
         Test connection to Upstox API
         
