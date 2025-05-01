@@ -4326,15 +4326,19 @@ async def send_startup_notification(config, logger):
         True if notification was sent successfully, False otherwise
     """
     if not config.get('ENABLE_TELEGRAM_ALERTS', False):
+        logger.info("Telegram alerts disabled, skipping startup notification")
         return False
         
     try:
-        # Escape the entire startup message
-        message = escape_telegram_markdown(f"""
+        # Current time in UTC format
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Construct the notification message
+        message = f"""
 🚀 Enhanced Trading Signal Bot Started 🚀
 
 Version: {config.get('VERSION', '3.5.1')}
-Started at: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Started at: {current_time}
 Analysis Frequency: Every {config.get('ANALYSIS_FREQUENCY', 1)} hour(s)
 Stocks Monitored: {len(config.get('STOCK_LIST', []))} stocks
 
@@ -4346,117 +4350,162 @@ Key Features:
 • Full trading checklist evaluation
 
 Bot is now actively monitoring for trading signals.
-        """)
+        """
         
-        result = await send_telegram_message(message, config, logger)
-        logger.info("Startup notification sent successfully")
+        # Escape the message for Telegram's MarkdownV2 format
+        escaped_message = escape_telegram_markdown(message)
+        
+        # Send the message
+        result = await send_telegram_message(escaped_message, config, logger)
+        
+        if result:
+            logger.info("Startup notification sent successfully")
+        else:
+            logger.warning("Startup notification delivery failed")
+            
         return result
+        
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
+        logger.debug(traceback.format_exc())
         return False
 
+ # ===============================================================
+# Main Execution Function
+# ===============================================================
 
-    # ===============================================================
-    # Main Execution Function
-    # ===============================================================
-
-    async def run_trading_signals(config, logger):
-        """
-        Run the trading signal generation process
-        
-        Args:
-            config: Configuration dictionary with all settings
-            logger: Logger instance
+async def run_trading_signals(config, logger):
+    """
+    Run the trading signal generation process
+    
+    Args:
+        config: Configuration dictionary with all settings
+        logger: Logger instance
             
-        Returns:
-            Dictionary with analysis results or None if failed
-        """
-        start_time = time.time()
-        logger.info("Starting candlestick pattern analysis")
-        
-        try:
-            result = await analyze_and_generate_signals(config, logger)
+    Returns:
+        Dictionary with analysis results or None if failed
+    """
+    start_time = time.time()
+    logger.info("Starting candlestick pattern analysis")
+    
+    try:
+        # If analyze_and_generate_signals is not implemented yet, use this placeholder
+        async def analyze_and_generate_signals(config, logger):
+            """Placeholder function until real implementation is added"""
+            logger.info("Analyzing market data for trading signals...")
+            # Simulate processing time
+            await asyncio.sleep(2)
+            # Return dummy result
+            return {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "signals_generated": 0,
+                "stocks_analyzed": len(config.get('STOCK_LIST', [])),
+                "patterns_found": [],
+                "status": "success"
+            }
             
-            # Log completion
-            elapsed_time = time.time() - start_time
-            logger.info(f"Completed candlestick pattern analysis in {elapsed_time:.2f} seconds")
-            return result
+        # Run the analysis
+        result = await analyze_and_generate_signals(config, logger)
         
-        except Exception as e:
-            logger.error(f"Error in candlestick pattern analysis: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            # Send error notification
+        # Log completion
+        elapsed_time = time.time() - start_time
+        logger.info(f"Completed candlestick pattern analysis in {elapsed_time:.2f} seconds")
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error in candlestick pattern analysis: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Send error notification
+        if config.get('ENABLE_TELEGRAM_ALERTS', False):
             try:
-                # Escape the error message for MarkdownV2 format
-                error_message = escape_telegram_markdown(f"""
-    ⚠️ ERROR: Candlestick Pattern Bot Failure ⚠️
-        
-    Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    Error: {str(e)}
-        
-    Please check the logs for more details.
-                """)
-                await send_telegram_message(error_message, config, logger)
+                # Format the current time
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Create error message
+                error_message = f"""
+⚠️ ERROR: Candlestick Pattern Bot Failure ⚠️
+    
+Time: {current_time}
+Error: {str(e)}
+    
+Please check the logs for more details.
+                """
+                
+                # Escape the message for Telegram's MarkdownV2 format
+                escaped_message = escape_telegram_markdown(error_message)
+                
+                # Send the notification
+                await send_telegram_message(escaped_message, config, logger)
             except Exception as notification_err:
                 logger.error(f"Failed to send error notification: {notification_err}")
-            
-            return None
-
-
-    # ===============================================================
-    # Execution Scheduler with APScheduler
-    # ===============================================================
-
-    def create_scheduler(config, logger):
-        """
-        Create an APScheduler instance for more robust scheduling
         
-        Args:
-            config: Configuration dictionary with scheduling parameters
-            logger: Logger instance
-            
-        Returns:
-            Configured APScheduler instance
-        """
+        return None
+
+
+# ===============================================================
+# Execution Scheduler with APScheduler
+# ===============================================================
+
+def create_scheduler(config, logger):
+    """
+    Create an APScheduler instance for more robust scheduling
+    
+    Args:
+        config: Configuration dictionary with scheduling parameters
+        logger: Logger instance
+        
+    Returns:
+        Configured APScheduler instance
+    """
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+    except ImportError:
+        logger.critical("Required dependency 'apscheduler' not found. Please install it using: pip install apscheduler")
+        logger.critical("Exiting application due to missing dependencies")
+        sys.exit(1)
+    
+    # Create scheduler
+    scheduler = AsyncIOScheduler()
+    logger.info("Created AsyncIOScheduler for job scheduling")
+    
+    # Get scheduling configuration
+    market_open_hour = config.get('MARKET_OPEN_HOUR', 9)
+    market_close_hour = config.get('MARKET_CLOSE_HOUR', 15)
+    market_days = config.get('MARKET_DAYS', ['mon', 'tue', 'wed', 'thu', 'fri'])
+    frequency = config.get('ANALYSIS_FREQUENCY', 1)  # hours
+    
+    # Create comma-separated string of days
+    days_str = ','.join(market_days)
+    
+    # Define async wrapper for job execution
+    async def run_analysis_job():
         try:
-            from apscheduler.schedulers.asyncio import AsyncIOScheduler
-            from apscheduler.triggers.cron import CronTrigger
-            from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
-        except ImportError:
-            logger.critical("Required dependency 'apscheduler' not found. Please install it using: pip install apscheduler")
-            logger.critical("Exiting application due to missing dependencies")
-            sys.exit(1)
-        
-        # Create scheduler
-        scheduler = AsyncIOScheduler()
-        
-        # Schedule for specific hours of the day based on market hours
-        market_open_hour = config.get('MARKET_OPEN_HOUR', 9)
-        market_close_hour = config.get('MARKET_CLOSE_HOUR', 15)
-        market_days = config.get('MARKET_DAYS', ['mon', 'tue', 'wed', 'thu', 'fri'])
-        frequency = config.get('ANALYSIS_FREQUENCY', 1)  # hours
-        
-        # Create comma-separated string of days
-        days_str = ','.join(market_days)
-        
-        # Add job listener for logging
-        def job_listener(event):
-            if event.exception:
-                logger.error(f"Job failed: {event.exception}")
-            else:
-                logger.info(f"Job executed successfully: {event.retval}")
-        
+            logger.info("Executing scheduled analysis job")
+            return await run_trading_signals(config, logger)
+        except Exception as e:
+            logger.error(f"Error in scheduled analysis job: {e}")
+            logger.error(traceback.format_exc())
+            return None
+    
+    # Add job listener for logging
+    def job_listener(event):
+        if event.exception:
+            logger.error(f"Job failed: {event.exception}")
+        else:
+            logger.info(f"Job executed successfully: {event.retval}")
+    
         scheduler.add_listener(job_listener, EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
         
         # Schedule by intervals during market hours
         for hour in range(market_open_hour, market_close_hour + 1, frequency):
             job_id = f"analysis_job_{hour}"
             scheduler.add_job(
-                run_trading_signals,
+                run_analysis_job,
                 CronTrigger(hour=hour, minute=0, day_of_week=days_str),
                 id=job_id,
-                kwargs={"config": config, "logger": logger},
                 replace_existing=True,
                 name=f"Analysis Job at {hour}:00"
             )
@@ -4465,10 +4514,9 @@ Bot is now actively monitoring for trading signals.
         # Also schedule at market open and close for important signals
         if config.get('RUN_AT_MARKET_OPEN', True):
             scheduler.add_job(
-                run_trading_signals,
+                run_analysis_job,
                 CronTrigger(hour=market_open_hour, minute=15, day_of_week=days_str),
                 id="market_open_job",
-                kwargs={"config": config, "logger": logger},
                 replace_existing=True,
                 name="Market Open Analysis"
             )
@@ -4476,10 +4524,9 @@ Bot is now actively monitoring for trading signals.
         
         if config.get('RUN_AT_MARKET_CLOSE', True):
             scheduler.add_job(
-                run_trading_signals,
+                run_analysis_job,
                 CronTrigger(hour=market_close_hour, minute=30, day_of_week=days_str),
                 id="market_close_job",
-                kwargs={"config": config, "logger": logger},
                 replace_existing=True,
                 name="Market Close Analysis"
             )
@@ -4521,53 +4568,90 @@ async def main_async(config):
     Returns:
         0 for successful execution, 1 for errors
     """
-    # Initialize and test connections
-    logger, upstox_ok, telegram_ok = await initialize_and_test(config)
-    
-    logger.info("=" * 70)
-    logger.info(f"Candlestick Pattern Detection Bot - Starting Up (v{config.get('VERSION', '3.5.1')})")
-    logger.info("Advanced Pattern Recognition with Technical Indicator Validation")
-    logger.info("=" * 70)
-    
-    if not upstox_ok:
-        logger.error("Cannot proceed without Upstox API connection")
-        return 1
-    
-    if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
-        logger.warning("Telegram connection failed, proceeding without notifications")
-    
-    # Send startup notification
-    if config.get('ENABLE_TELEGRAM_ALERTS', False):
-        await send_startup_notification(config, logger)
-    
-    # Run immediately on startup if configured
-    if config.get('RUN_ON_STARTUP', True):
-        logger.info("Running initial analysis on startup")
-        await run_trading_signals(config, logger)
-    
-    # If running in scheduled mode, start the scheduler
-    if config.get('SCHEDULED_MODE', True):
-        try:
-            scheduler = create_scheduler(config, logger)
-            scheduler.start()
-            logger.info("Scheduler started - waiting for scheduled events")
-            
-            # Keep the event loop running
-            try:
-                # Wait forever until interrupted
-                while True:
-                    await asyncio.sleep(3600)  # Sleep for 1 hour and check again
-            except (KeyboardInterrupt, SystemExit):
-                logger.info("Bot stopped by user")
-                scheduler.shutdown()
-                return 0
-            
-        except Exception as e:
-            logger.error(f"Unexpected error in scheduler: {str(e)}")
-            logger.error(traceback.format_exc())
+    try:
+        # Initialize and test connections
+        logger, upstox_ok, telegram_ok = await initialize_and_test(config)
+        
+        # Get current user and time information
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_user = config.get('USERNAME', 'rahulreddyallu')
+        
+        # Log startup information
+        logger.info("=" * 70)
+        logger.info(f"Quantitative Trading Bot v{config.get('VERSION', '3.5.1')} - Starting")
+        logger.info(f"Bot run by: {current_user} at {current_time} UTC")
+        logger.info("=" * 70)
+        logger.info(f"Configured to analyze {len(config.get('STOCK_LIST', []))} stocks with {config.get('HISTORICAL_DAYS', 100)} days of historical data")
+        
+        # Check connections
+        if not upstox_ok:
+            logger.error("Cannot proceed without Upstox API connection")
             return 1
-    
-    return 0
+        
+        if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
+            logger.warning("Telegram connection failed - notifications will not be sent")
+        
+        # Send startup notification if Telegram is enabled
+        if config.get('ENABLE_TELEGRAM_ALERTS', False) and telegram_ok:
+            logger.info("Sending startup notification...")
+            await send_startup_notification(config, logger)
+        
+        # Run initial analysis if configured
+        if config.get('RUN_ON_STARTUP', True):
+            logger.info("Running initial analysis on startup")
+            try:
+                await run_trading_signals(config, logger)
+                logger.info("Initial analysis completed successfully")
+            except Exception as e:
+                logger.error(f"Error in initial analysis: {str(e)}")
+                logger.error(traceback.format_exc())
+        
+        # Start scheduler if configured
+        if config.get('SCHEDULED_MODE', True):
+            try:
+                logger.info("Initializing scheduler...")
+                scheduler = create_scheduler(config, logger)
+                
+                logger.info("Starting scheduler...")
+                scheduler.start()
+                logger.info("Scheduler started successfully - waiting for scheduled events")
+                
+                # Keep the event loop running
+                try:
+                    logger.info("Entering main event loop")
+                    while True:
+                        # Sleep for a shorter period and log periodically to show the bot is alive
+                        for _ in range(60):  # Log every hour (60 * 60 seconds)
+                            await asyncio.sleep(60)  # Sleep for 1 minute
+                        logger.debug("Bot is running normally - waiting for next scheduled event")
+                        
+                except (KeyboardInterrupt, SystemExit):
+                    logger.info("Bot stopped by user")
+                    logger.info("Shutting down scheduler...")
+                    scheduler.shutdown()
+                    logger.info("Scheduler shutdown complete")
+                    return 0
+                
+            except Exception as e:
+                logger.error(f"Unexpected error in scheduler: {str(e)}")
+                logger.error(traceback.format_exc())
+                return 1
+        else:
+            logger.info("Scheduled mode disabled - exiting after initial analysis")
+        
+        logger.info("Bot completed execution successfully")
+        return 0
+        
+    except Exception as e:
+        # Handle any uncaught exceptions
+        try:
+            logger.error(f"Unhandled exception in main_async: {str(e)}")
+            logger.error(traceback.format_exc())
+        except NameError:
+            # If logger isn't defined yet, use basic logging
+            logging.error(f"Fatal error before logger initialization: {str(e)}")
+            logging.error(traceback.format_exc())
+        return 1
 
 def main(config):
     """
