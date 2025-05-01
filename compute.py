@@ -72,7 +72,30 @@ class EmptyDataError(DataFetchError):
     def __init__(self, symbol, message="No data returned"):
         super().__init__(symbol, message)
 
+def setup_logging(config):
+    """
+    Setup logging configuration
+    
+    Args:
+        config: Configuration dictionary with logging parameters
+        
+    Returns:
+        Logger object
+    """
+    # Create logs directory
+    os.makedirs(config.get('LOG_DIRECTORY', 'logs'), exist_ok=True)
 
+    # Setup logging
+    log_filename = f"{config.get('LOG_DIRECTORY', 'logs')}/trading_bot_{datetime.datetime.now().strftime('%Y%m%d')}.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    return logging.getLogger(__name__)
 # ===============================================================
 # Parameter Configuration
 # ===============================================================
@@ -249,31 +272,6 @@ class TradingParameters:
     # ===============================================================
     # Utility Functions
     # ===============================================================
-
-    def setup_logging(config):
-        """
-        Setup logging configuration
-        
-        Args:
-            config: Configuration dictionary with logging parameters
-            
-        Returns:
-            Logger object
-        """
-        # Create logs directory
-        os.makedirs(config.get('LOG_DIRECTORY', 'logs'), exist_ok=True)
-
-        # Setup logging
-        log_filename = f"{config.get('LOG_DIRECTORY', 'logs')}/trading_bot_{datetime.datetime.now().strftime('%Y%m%d')}.log"
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_filename),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
-        return logging.getLogger(__name__)
 
     def get_stock_info_by_key(instrument_key, stock_info_dict):
         """
