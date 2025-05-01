@@ -4439,208 +4439,208 @@ async def run_trading_signals(config, logger):
     try:
         # Implement the real analyze_and_generate_signals function here
         async def analyze_and_generate_signals(config, logger):
-        """
-        Fetches historical data for symbols in config's STOCK_LIST, performs candlestick pattern analysis,
-        and generates trading signals.
-        """
-        # Log function start with current UTC time
-        current_datetime = datetime.datetime.now()
-        logger.info(f"Starting analysis at {current_datetime.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        
-        # Create trading parameters object for configuration
-        params = TradingParameters(config)
-        
-        # Current date/time
-        current_date_str = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
-        logger.info(f"Analysis date: {current_date_str}")
-        
-        # Calculate date range (based on HISTORICAL_DAYS constant)
-        end_date = current_datetime.strftime('%Y-%m-%d')
-        start_date = (current_datetime - datetime.timedelta(days=config.get('HISTORICAL_DAYS', 100))).strftime('%Y-%m-%d')
-        logger.info(f"Analyzing data from {start_date} to {end_date}")
-    
-        # Initialize Upstox API client
-        try:
-            market_api, api_client = initialize_upstox(config, logger)
-        except APIConnectionError as e:
-            logger.error(f"Failed to initialize Upstox client: {str(e)}")
-            raise
-        
-        # Track overall statistics
-        analysis_results = {
-            'successful_analyses': 0,
-            'failed_analyses': 0,
-            'total_signals': 0,
-            'buy_signals': 0,
-            'sell_signals': 0,
-            'symbols_analyzed': [],
-            'signals_generated': []
-        }
-        
-        # Header for daily report
-        daily_report = [
-            f"📈 CANDLESTICK PATTERN ANALYSIS REPORT 📉",
-            f"Date: {current_date_str} UTC",
-            f"Analyzing {len(config.get('STOCK_LIST', []))} symbols with {config.get('HISTORICAL_DAYS', 100)} days of historical data",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ]
-        
-        # Process each symbol in STOCK_LIST
-        for symbol in config.get('STOCK_LIST', [])[:3]:  # Limit to first 3 symbols for testing
-            logger.info(f"Processing symbol: {symbol}")
+            """
+            Fetches historical data for symbols in config's STOCK_LIST, performs candlestick pattern analysis,
+            and generates trading signals.
+            """
+            # Log function start with current UTC time
+            current_datetime = datetime.datetime.now()
+            logger.info(f"Starting analysis at {current_datetime.strftime('%Y-%m-%d %H:%M:%S')} UTC")
             
+            # Create trading parameters object for configuration
+            params = TradingParameters(config)
+            
+            # Current date/time
+            current_date_str = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"Analysis date: {current_date_str}")
+            
+            # Calculate date range (based on HISTORICAL_DAYS constant)
+            end_date = current_datetime.strftime('%Y-%m-%d')
+            start_date = (current_datetime - datetime.timedelta(days=config.get('HISTORICAL_DAYS', 100))).strftime('%Y-%m-%d')
+            logger.info(f"Analyzing data from {start_date} to {end_date}")
+        
+            # Initialize Upstox API client
             try:
-                # Get stock information
-                stock_info = get_stock_info_by_key(symbol, config.get('STOCK_INFO', {}))
-                company_name = stock_info.get("name", "Unknown Company")
-                industry = stock_info.get("industry", "Unknown Industry")
-                trading_symbol = stock_info.get("symbol", symbol.split("|")[-1] if "|" in symbol else symbol)
+                market_api, api_client = initialize_upstox(config, logger)
+            except APIConnectionError as e:
+                logger.error(f"Failed to initialize Upstox client: {str(e)}")
+                raise
+            
+            # Track overall statistics
+            analysis_results = {
+                'successful_analyses': 0,
+                'failed_analyses': 0,
+                'total_signals': 0,
+                'buy_signals': 0,
+                'sell_signals': 0,
+                'symbols_analyzed': [],
+                'signals_generated': []
+            }
+            
+            # Header for daily report
+            daily_report = [
+                f"📈 CANDLESTICK PATTERN ANALYSIS REPORT 📉",
+                f"Date: {current_date_str} UTC",
+                f"Analyzing {len(config.get('STOCK_LIST', []))} symbols with {config.get('HISTORICAL_DAYS', 100)} days of historical data",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ]
+            
+            # Process each symbol in STOCK_LIST
+            for symbol in config.get('STOCK_LIST', [])[:3]:  # Limit to first 3 symbols for testing
+                logger.info(f"Processing symbol: {symbol}")
                 
-                logger.info(f"Analyzing {company_name} ({trading_symbol}) - {industry}")
-                
-                # Fetch historical data with daily interval
                 try:
-                    data = fetch_ohlcv_data(
-                        market_api, 
-                        symbol, 
-                        start_date, 
-                        end_date, 
-                        interval=config.get('CHART_INTERVAL', 'day'),
-                        logger=logger
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to fetch data for {symbol}: {str(e)}")
-                    analysis_results['failed_analyses'] += 1
-                    daily_report.append(f"\n{company_name} ({trading_symbol}): Error fetching data - {str(e)}")
-                    continue
-                
-                # Create mock data if needed
-                if data is None or len(data) < 10:
-                    logger.warning(f"Insufficient data for {symbol}, creating mock data for testing")
-                    # Create synthetic data for testing
-                    dates = pd.date_range(start=start_date, end=end_date)
-                    data = pd.DataFrame({
-                        'Open': np.random.normal(1000, 20, len(dates)),
-                        'High': np.random.normal(1020, 20, len(dates)),
-                        'Low': np.random.normal(980, 20, len(dates)),
-                        'Close': np.random.normal(1010, 20, len(dates)),
-                        'Volume': np.random.normal(1000000, 200000, len(dates))
-                    }, index=dates)
+                    # Get stock information
+                    stock_info = get_stock_info_by_key(symbol, config.get('STOCK_INFO', {}))
+                    company_name = stock_info.get("name", "Unknown Company")
+                    industry = stock_info.get("industry", "Unknown Industry")
+                    trading_symbol = stock_info.get("symbol", symbol.split("|")[-1] if "|" in symbol else symbol)
                     
-                    # Ensure High is always highest and Low is always lowest
-                    for i in range(len(data)):
-                        values = [data['Open'].iloc[i], data['Close'].iloc[i]]
-                        data['High'].iloc[i] = max(values) + abs(np.random.normal(5, 2))
-                        data['Low'].iloc[i] = min(values) - abs(np.random.normal(5, 2))
-                
-                logger.info(f"Analyzing {company_name} ({trading_symbol}) with {len(data)} data points")
-                
-                # Simulate pattern analysis (replace with actual analysis when ready)
-                patterns = ['bullish_engulfing', 'hammer', 'morning_star', 'three_white_soldiers']
-                detected_patterns = [patterns[i] for i in range(len(patterns)) if np.random.random() > 0.7]
-                
-                # Create random signal
-                signal_type = 'BUY' if np.random.random() > 0.5 else 'SELL'
-                signal_strength = np.random.randint(3, 6)  # 3-5 stars
-                confidence = 'HIGH' if signal_strength >= 4 else 'MEDIUM'
-                
-                # Update statistics
-                analysis_results['successful_analyses'] += 1
-                analysis_results['symbols_analyzed'].append(trading_symbol)
-                
-                if len(detected_patterns) > 0:
-                    analysis_results['total_signals'] += 1
+                    logger.info(f"Analyzing {company_name} ({trading_symbol}) - {industry}")
                     
-                    if signal_type == 'BUY':
-                        analysis_results['buy_signals'] += 1
-                    else:
-                        analysis_results['sell_signals'] += 1
+                    # Fetch historical data with daily interval
+                    try:
+                        data = fetch_ohlcv_data(
+                            market_api, 
+                            symbol, 
+                            start_date, 
+                            end_date, 
+                            interval=config.get('CHART_INTERVAL', 'day'),
+                            logger=logger
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to fetch data for {symbol}: {str(e)}")
+                        analysis_results['failed_analyses'] += 1
+                        daily_report.append(f"\n{company_name} ({trading_symbol}): Error fetching data - {str(e)}")
+                        continue
                     
-                    # Store signal in results
-                    analysis_results['signals_generated'].append({
-                        'symbol': trading_symbol,
-                        'company': company_name,
-                        'signal': signal_type,
-                        'strength': signal_strength,
-                        'confidence': confidence,
-                        'price': float(data['Close'].iloc[-1]) if 'Close' in data else 1000.0,
-                        'patterns': detected_patterns
-                    })
-                    
-                    # Add to daily report
-                    daily_report.append(f"\n{company_name} ({trading_symbol}): {signal_type} (Strength: {signal_strength}/5)")
-                    daily_report.append(f"{'Bullish' if signal_type == 'BUY' else 'Bearish'} signal with {confidence} confidence")
-                    
-                    # Format detected patterns for report
-                    if detected_patterns:
-                        patterns_text = ["Detected patterns:"]
-                        for pattern in detected_patterns:
-                            pattern_name = pattern.replace('_', ' ').title()
-                            patterns_text.append(f"✅ {pattern_name}")
-                        daily_report.append("\n".join(patterns_text))
+                    # Create mock data if needed
+                    if data is None or len(data) < 10:
+                        logger.warning(f"Insufficient data for {symbol}, creating mock data for testing")
+                        # Create synthetic data for testing
+                        dates = pd.date_range(start=start_date, end=end_date)
+                        data = pd.DataFrame({
+                            'Open': np.random.normal(1000, 20, len(dates)),
+                            'High': np.random.normal(1020, 20, len(dates)),
+                            'Low': np.random.normal(980, 20, len(dates)),
+                            'Close': np.random.normal(1010, 20, len(dates)),
+                            'Volume': np.random.normal(1000000, 200000, len(dates))
+                        }, index=dates)
                         
-                    # Create message for Telegram
-                    closing_price = float(data['Close'].iloc[-1]) if 'Close' in data else 1000.0
+                        # Ensure High is always highest and Low is always lowest
+                        for i in range(len(data)):
+                            values = [data['Open'].iloc[i], data['Close'].iloc[i]]
+                            data['High'].iloc[i] = max(values) + abs(np.random.normal(5, 2))
+                            data['Low'].iloc[i] = min(values) - abs(np.random.normal(5, 2))
                     
-                    # Create safe message text (minimal special characters)
-                    message = f"""
-    TEST SIGNAL | {trading_symbol} | {signal_type} {'⭐' * signal_strength}
-    
-    {company_name}
-    Price: {closing_price:.2f} | Industry: {industry}
-    
-    DETECTED PATTERNS:
-    """
+                    logger.info(f"Analyzing {company_name} ({trading_symbol}) with {len(data)} data points")
                     
-                    # Add patterns
-                    for pattern in detected_patterns:
-                        message += f"✅ {pattern.replace('_', ' ').title()}\n"
+                    # Simulate pattern analysis (replace with actual analysis when ready)
+                    patterns = ['bullish_engulfing', 'hammer', 'morning_star', 'three_white_soldiers']
+                    detected_patterns = [patterns[i] for i in range(len(patterns)) if np.random.random() > 0.7]
                     
-                    message += f"""
-    SIGNAL SUMMARY:
-    {'Bullish' if signal_type == 'BUY' else 'Bearish'} signal with {confidence} confidence
-    
-    Generated: {datetime.datetime.now().strftime("%b-%d %H:%M")}
-    """
+                    # Create random signal
+                    signal_type = 'BUY' if np.random.random() > 0.5 else 'SELL'
+                    signal_strength = np.random.randint(3, 6)  # 3-5 stars
+                    confidence = 'HIGH' if signal_strength >= 4 else 'MEDIUM'
                     
-                    # Send Telegram message without markdown
-                    await send_telegram_message(message, config, logger)
-                    logger.info(f"Sent pattern alert for {company_name} ({trading_symbol})")
-                else:
-                    logger.info(f"No significant patterns detected for {company_name} ({trading_symbol})")
-                    daily_report.append(f"\n{company_name} ({trading_symbol}): No significant patterns")
+                    # Update statistics
+                    analysis_results['successful_analyses'] += 1
+                    analysis_results['symbols_analyzed'].append(trading_symbol)
                     
-            except Exception as e:
-                logger.error(f"Error analyzing {symbol}: {e}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                analysis_results['failed_analyses'] += 1
-                daily_report.append(f"\n{symbol}: Error during analysis - {str(e)[:50]}...")
-                continue
+                    if len(detected_patterns) > 0:
+                        analysis_results['total_signals'] += 1
+                        
+                        if signal_type == 'BUY':
+                            analysis_results['buy_signals'] += 1
+                        else:
+                            analysis_results['sell_signals'] += 1
+                        
+                        # Store signal in results
+                        analysis_results['signals_generated'].append({
+                            'symbol': trading_symbol,
+                            'company': company_name,
+                            'signal': signal_type,
+                            'strength': signal_strength,
+                            'confidence': confidence,
+                            'price': float(data['Close'].iloc[-1]) if 'Close' in data else 1000.0,
+                            'patterns': detected_patterns
+                        })
+                        
+                        # Add to daily report
+                        daily_report.append(f"\n{company_name} ({trading_symbol}): {signal_type} (Strength: {signal_strength}/5)")
+                        daily_report.append(f"{'Bullish' if signal_type == 'BUY' else 'Bearish'} signal with {confidence} confidence")
+                        
+                        # Format detected patterns for report
+                        if detected_patterns:
+                            patterns_text = ["Detected patterns:"]
+                            for pattern in detected_patterns:
+                                pattern_name = pattern.replace('_', ' ').title()
+                                patterns_text.append(f"✅ {pattern_name}")
+                            daily_report.append("\n".join(patterns_text))
+                            
+                        # Create message for Telegram
+                        closing_price = float(data['Close'].iloc[-1]) if 'Close' in data else 1000.0
+                        
+                        # Create safe message text (minimal special characters)
+                        message = f"""
+        TEST SIGNAL | {trading_symbol} | {signal_type} {'⭐' * signal_strength}
         
-        # Finalize daily report
-        daily_report.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        daily_report.append("Analysis Summary:")
-        daily_report.append(f"• Analyzed: {analysis_results['successful_analyses']} symbols")
-        daily_report.append(f"• Failed: {analysis_results['failed_analyses']} symbols") 
-        daily_report.append(f"• Total signals generated: {analysis_results['total_signals']} ({analysis_results['buy_signals']} BUY, {analysis_results['sell_signals']} SELL)")
-        daily_report.append(f"• Report time: {current_date_str} UTC")
+        {company_name}
+        Price: {closing_price:.2f} | Industry: {industry}
         
-        # Store report in results
-        analysis_results['daily_report'] = daily_report
+        DETECTED PATTERNS:
+        """
+                        
+                        # Add patterns
+                        for pattern in detected_patterns:
+                            message += f"✅ {pattern.replace('_', ' ').title()}\n"
+                        
+                        message += f"""
+        SIGNAL SUMMARY:
+        {'Bullish' if signal_type == 'BUY' else 'Bearish'} signal with {confidence} confidence
         
-        # Send daily summary report via Telegram
-        if analysis_results['successful_analyses'] > 0 and config.get('ENABLE_DAILY_REPORT', True):
-            report_message = "\n".join(daily_report)
-            await send_telegram_message(report_message, config, logger)
-        
-        # Log summary statistics
-        logger.info(f"Analysis completed. Processed {len(config.get('STOCK_LIST', []))} symbols.")
-        logger.info(f"Successful analyses: {analysis_results['successful_analyses']}")
-        logger.info(f"Failed analyses: {analysis_results['failed_analyses']}")
-        logger.info(f"Total signals generated: {analysis_results['total_signals']} ({analysis_results['buy_signals']} BUY, {analysis_results['sell_signals']} SELL)")
-        logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        
-        return analysis_results
+        Generated: {datetime.datetime.now().strftime("%b-%d %H:%M")}
+        """
+                        
+                        # Send Telegram message without markdown
+                        await send_telegram_message(message, config, logger)
+                        logger.info(f"Sent pattern alert for {company_name} ({trading_symbol})")
+                    else:
+                        logger.info(f"No significant patterns detected for {company_name} ({trading_symbol})")
+                        daily_report.append(f"\n{company_name} ({trading_symbol}): No significant patterns")
+                        
+                except Exception as e:
+                    logger.error(f"Error analyzing {symbol}: {e}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    analysis_results['failed_analyses'] += 1
+                    daily_report.append(f"\n{symbol}: Error during analysis - {str(e)[:50]}...")
+                    continue
+            
+            # Finalize daily report
+            daily_report.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            daily_report.append("Analysis Summary:")
+            daily_report.append(f"• Analyzed: {analysis_results['successful_analyses']} symbols")
+            daily_report.append(f"• Failed: {analysis_results['failed_analyses']} symbols") 
+            daily_report.append(f"• Total signals generated: {analysis_results['total_signals']} ({analysis_results['buy_signals']} BUY, {analysis_results['sell_signals']} SELL)")
+            daily_report.append(f"• Report time: {current_date_str} UTC")
+            
+            # Store report in results
+            analysis_results['daily_report'] = daily_report
+            
+            # Send daily summary report via Telegram
+            if analysis_results['successful_analyses'] > 0 and config.get('ENABLE_DAILY_REPORT', True):
+                report_message = "\n".join(daily_report)
+                await send_telegram_message(report_message, config, logger)
+            
+            # Log summary statistics
+            logger.info(f"Analysis completed. Processed {len(config.get('STOCK_LIST', []))} symbols.")
+            logger.info(f"Successful analyses: {analysis_results['successful_analyses']}")
+            logger.info(f"Failed analyses: {analysis_results['failed_analyses']}")
+            logger.info(f"Total signals generated: {analysis_results['total_signals']} ({analysis_results['buy_signals']} BUY, {analysis_results['sell_signals']} SELL)")
+            logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+            
+            return analysis_results
             
         # Run the analysis with the implementation above
         result = await analyze_and_generate_signals(config, logger)
