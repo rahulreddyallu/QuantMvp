@@ -4332,63 +4332,63 @@ class TradingParameters:
         
         return 0
 
-    def main(config):
-        """
-        Main function to run the Candlestick Pattern Bot
+def main(config):
+    """
+    Main function to run the Candlestick Pattern Bot
+    
+    Args:
+        config: Configuration dictionary
         
-        Args:
-            config: Configuration dictionary
-            
-        Returns:
-            0 for successful execution, 1 for errors
-        """
-        try:
-            # Set up default configuration if not provided
-            if config is None:
-                config = {
-                    'VERSION': '3.5.1',
-                    'LOG_DIRECTORY': 'logs',
-                    'HISTORICAL_DAYS': 100,
-                    'CHART_INTERVAL': 'day',
-                    'ENABLE_TELEGRAM_ALERTS': False,
-                    'ENABLE_DAILY_REPORT': True,
-                    'MARKET_OPEN_HOUR': 9,
-                    'MARKET_CLOSE_HOUR': 15,
-                    'MARKET_DAYS': ['mon', 'tue', 'wed', 'thu', 'fri'],
-                    'ANALYSIS_FREQUENCY': 1,
-                    'RUN_ON_STARTUP': True,
-                    'SCHEDULED_MODE': True,
-                    'RUN_AT_MARKET_OPEN': True,
-                    'RUN_AT_MARKET_CLOSE': True,
-                    'STOCK_LIST': [],
-                    'STOCK_INFO': {}
-                }
-            
-            # Run the async main function
-            return asyncio.run(main_async(config))
-        except Exception as e:
-            # Set up simple console logging if logger isn't initialized yet
-            logging.basicConfig(level=logging.ERROR)
-            logger = logging.getLogger("emergency_logger")
-            logger.error(f"Fatal error: {str(e)}")
-            logger.error(traceback.format_exc())
-            return 1
+    Returns:
+        0 for successful execution, 1 for errors
+    """
+    try:
+        # Set up default configuration if not provided
+        if config is None:
+            config = {
+                'VERSION': '3.5.1',
+                'LOG_DIRECTORY': 'logs',
+                'HISTORICAL_DAYS': 100,
+                'CHART_INTERVAL': 'day',
+                'ENABLE_TELEGRAM_ALERTS': False,
+                'ENABLE_DAILY_REPORT': True,
+                'MARKET_OPEN_HOUR': 9,
+                'MARKET_CLOSE_HOUR': 15,
+                'MARKET_DAYS': ['mon', 'tue', 'wed', 'thu', 'fri'],
+                'ANALYSIS_FREQUENCY': 1,
+                'RUN_ON_STARTUP': True,
+                'SCHEDULED_MODE': True,
+                'RUN_AT_MARKET_OPEN': True,
+                'RUN_AT_MARKET_CLOSE': True,
+                'STOCK_LIST': [],
+                'STOCK_INFO': {}
+            }
+        
+        # Run the async main function
+        return asyncio.run(main_async(config))
+    except Exception as e:
+        # Set up simple console logging if logger isn't initialized yet
+        logging.basicConfig(level=logging.ERROR)
+        logger = logging.getLogger("emergency_logger")
+        logger.error(f"Fatal error: {str(e)}")
+        logger.error(traceback.format_exc())
+        return 1
 
-    if __name__ == "__main__":
-        # Example configuration for direct execution
-        config = {
-            'VERSION': '3.5.1',
-            'LOG_DIRECTORY': 'logs',
-            'HISTORICAL_DAYS': 100,
-            'CHART_INTERVAL': 'day',
-            # Add required API credentials and stock list here
-            'STOCK_LIST': [],
-            'UPSTOX_ACCESS_TOKEN': '',  # Add your token here
-            'ENABLE_TELEGRAM_ALERTS': False,
-            'TELEGRAM_BOT_TOKEN': '',   # Add your token here
-            'TELEGRAM_CHAT_ID': '',     # Add your chat ID here
-        }
-        
-        # Run the bot
-        exit_code = main(config)
-        sys.exit(exit_code)
+if __name__ == "__main__":
+    # Example configuration for direct execution
+    config = {
+        'VERSION': '3.5.1',
+        'LOG_DIRECTORY': 'logs',
+        'HISTORICAL_DAYS': 100,
+        'CHART_INTERVAL': 'day',
+        # Add required API credentials and stock list here
+        'STOCK_LIST': [],
+        'UPSTOX_ACCESS_TOKEN': '',  # Add your token here
+        'ENABLE_TELEGRAM_ALERTS': False,
+        'TELEGRAM_BOT_TOKEN': '',   # Add your token here
+        'TELEGRAM_CHAT_ID': '',     # Add your chat ID here
+    }
+    
+    # Run the bot
+    exit_code = main(config)
+    sys.exit(exit_code)
