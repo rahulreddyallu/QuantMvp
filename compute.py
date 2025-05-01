@@ -4433,22 +4433,8 @@ async def run_trading_signals(config, logger):
     logger.info("Starting candlestick pattern analysis")
     
     try:
-        # If analyze_and_generate_signals is not implemented yet, use this placeholder
-        async def analyze_and_generate_signals(config, logger):
-            """Placeholder function until real implementation is added"""
-            logger.info("Analyzing market data for trading signals...")
-            # Simulate processing time
-            await asyncio.sleep(2)
-            # Return dummy result
-            return {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "signals_generated": 0,
-                "stocks_analyzed": len(config.get('STOCK_LIST', [])),
-                "patterns_found": [],
-                "status": "success"
-            }
-            
         # Run the analysis
+        # The placeholder has been removed - use the global implementation
         result = await analyze_and_generate_signals(config, logger)
         
         # Log completion
@@ -4460,7 +4446,7 @@ async def run_trading_signals(config, logger):
         logger.error(f"Error in candlestick pattern analysis: {str(e)}")
         logger.error(traceback.format_exc())
         
-        # Send error notification
+        # Send error notification if enabled
         if config.get('ENABLE_TELEGRAM_ALERTS', False):
             try:
                 # Format the current time
@@ -4485,7 +4471,6 @@ Please check the logs for more details.
                 logger.error(f"Failed to send error notification: {notification_err}")
         
         return None
-
 
 # ===============================================================
 # Execution Scheduler with APScheduler
