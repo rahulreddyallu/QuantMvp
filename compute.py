@@ -272,28 +272,25 @@ class TradingParameters:
     # ===============================================================
     # Utility Functions
     # ===============================================================
-    # ===============================================================
-# Helper Functions
-# ===============================================================
-
-    def escape_telegram_markdown(text):
-        """
-        Escape special characters for Telegram MarkdownV2 format
+   
+def escape_telegram_markdown(text):
+    """
+    Escape special characters for Telegram MarkdownV2 format
+    
+    Args:
+        text: Text to escape
         
-        Args:
-            text: Text to escape
-            
-        Returns:
-            Escaped text safe for Telegram MarkdownV2
-        """
-        # Characters that need to be escaped in MarkdownV2
-        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-        
-        # Escape each character with a backslash
-        for char in escape_chars:
-            text = text.replace(char, '\\' + char)
-        
-        return text
+    Returns:
+        Escaped text safe for Telegram MarkdownV2
+    """
+    # Characters that need to be escaped in MarkdownV2
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    
+    # Escape each character with a backslash
+    for char in escape_chars:
+        text = text.replace(char, '\\' + char)
+    
+    return text
 
 
     def get_stock_info_by_key(instrument_key, stock_info_dict):
@@ -4434,8 +4431,22 @@ def main(config):
                 'STOCK_INFO': {}
             }
         
-        # Run the async main function
-        return asyncio.run(main_async(config))
+        # Safely run the async main function using the appropriate approach
+        # based on whether there's already an event loop running
+        try:
+            # Check if we're already in an event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If already in a running loop, create a future and run with ensure_future
+                asyncio.ensure_future(main_async(config))
+                return 0
+            else:
+                # If loop exists but not running, use run_until_complete
+                return loop.run_until_complete(main_async(config))
+        except RuntimeError:
+            # If no loop exists, create a new one with asyncio.run()
+            return asyncio.run(main_async(config))
+            
     except Exception as e:
         # Set up simple console logging if logger isn't initialized yet
         logging.basicConfig(level=logging.ERROR)
