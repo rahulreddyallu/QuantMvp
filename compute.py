@@ -4699,39 +4699,38 @@ async def main_async(config):
                 logger.error(f"[RUN:{run_id}] Error in initial analysis: {str(e)}")
                 logger.error(traceback.format_exc())
         
-       # Update the scheduler section in main_async
-    # Start scheduler if configured
-    if config.get('SCHEDULED_MODE', True):
-        try:
-            logger.info(f"[RUN:{run_id}] Creating scheduler...")
-            scheduler = create_scheduler(config, logger)
-            
-            if scheduler is None:
-                logger.error(f"[RUN:{run_id}] Failed to create scheduler - exiting scheduled mode")
-            else:
-                logger.info(f"[RUN:{run_id}] Starting scheduler...")
-                scheduler.start()
-                logger.info(f"[RUN:{run_id}] Scheduler started successfully - waiting for scheduled events")
+        # Start scheduler if configured
+        if config.get('SCHEDULED_MODE', True):
+            try:
+                logger.info(f"[RUN:{run_id}] Creating scheduler...")
+                scheduler = create_scheduler(config, logger)
                 
-                # Keep the event loop running
-                try:
-                    logger.info(f"[RUN:{run_id}] Entering main event loop")
-                    counter = 0
-                    while True:
-                        await asyncio.sleep(60)
-                        counter += 1
-                        if counter % 60 == 0:  # Log once per hour
-                            logger.info(f"[RUN:{run_id}] Bot running normally - uptime: {counter} minutes")
-                except (KeyboardInterrupt, SystemExit):
-                    logger.info(f"[RUN:{run_id}] Bot stopped by user")
-                    scheduler.shutdown()
-                    return 0
-        except Exception as e:
-            logger.error(f"[RUN:{run_id}] Unexpected error in scheduler: {str(e)}")
-            logger.error(traceback.format_exc())
-            return 1
-    else:
-        logger.info(f"[RUN:{run_id}] Scheduled mode disabled - exiting after initial analysis")
+                if scheduler is None:
+                    logger.error(f"[RUN:{run_id}] Failed to create scheduler - exiting scheduled mode")
+                else:
+                    logger.info(f"[RUN:{run_id}] Starting scheduler...")
+                    scheduler.start()
+                    logger.info(f"[RUN:{run_id}] Scheduler started successfully - waiting for scheduled events")
+                    
+                    # Keep the event loop running
+                    try:
+                        logger.info(f"[RUN:{run_id}] Entering main event loop")
+                        counter = 0
+                        while True:
+                            await asyncio.sleep(60)
+                            counter += 1
+                            if counter % 60 == 0:  # Log once per hour
+                                logger.info(f"[RUN:{run_id}] Bot running normally - uptime: {counter} minutes")
+                    except (KeyboardInterrupt, SystemExit):
+                        logger.info(f"[RUN:{run_id}] Bot stopped by user")
+                        scheduler.shutdown()
+                        return 0
+            except Exception as e:
+                logger.error(f"[RUN:{run_id}] Unexpected error in scheduler: {str(e)}")
+                logger.error(traceback.format_exc())
+                return 1
+        else:
+            logger.info(f"[RUN:{run_id}] Scheduled mode disabled - exiting after initial analysis")
         
         logger.info(f"[RUN:{run_id}] Bot completed execution successfully")
         return 0
