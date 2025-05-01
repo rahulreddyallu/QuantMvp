@@ -17,6 +17,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 import re
+from contextlib import asynccontextmanager
 from typing import Dict, List, Union, Tuple, Any, Optional
 from contextlib import asynccontextmanager
 
@@ -275,6 +276,26 @@ class TradingParameters:
 # ===============================================================
 # Helper Functions
 # ===============================================================
+# ===============================================================
+# Telegram Integration
+# ===============================================================
+
+@asynccontextmanager
+async def get_telegram_bot(token):
+    """
+    Context manager for Telegram bot to ensure proper resource management
+    
+    Args:
+        token: Telegram bot token
+        
+    Yields:
+        Bot instance
+    """
+    bot = Bot(token=token)
+    try:
+        yield bot
+    finally:
+        await bot.session.close()
 
 def setup_logging(config):
     """
