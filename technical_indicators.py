@@ -1315,4 +1315,993 @@ class TechnicalIndicators:
                         valley2 = window.loc[between_indices_2]['Low'].min()
                         
                         if (valley1 < first_max * 0.95 and valley1 < second_max * 0.95 and
-                            valley2 < second_max * 0.95 and valley2 < third_max *
+                            valley2 < second_max * 0.95 and valley2 < third_max *                        if (valley1 < first_max * 0.95 and valley1 < second_max * 0.95 and
+                            valley2 < second_max * 0.95 and valley2 < third_max * 0.95):
+                            # Triple top confirmed
+                            self.df.loc[self.df.index[i], 'triple_top'] = True
+            
+            # Triple bottom detection
+            min_indices = window[window['is_local_min']].index.tolist()
+            if len(min_indices) >= 3:
+                # Check the most recent three minima
+                last_three_minima = min_indices[-3:]
+                first_min = window.loc[last_three_minima[0]]['Low']
+                second_min = window.loc[last_three_minima[1]]['Low']
+                third_min = window.loc[last_three_minima[2]]['Low']
+                
+                # Check if all minima are within tolerance
+                if (abs(first_min - second_min) / first_min <= tolerance and
+                    abs(first_min - third_min) / first_min <= tolerance and
+                    abs(second_min - third_min) / second_min <= tolerance):
+                    
+                    # Check for peaks between the bottoms
+                    between_indices_1 = window.index[(window.index > last_three_minima[0]) & (window.index < last_three_minima[1])]
+                    between_indices_2 = window.index[(window.index > last_three_minima[1]) & (window.index < last_three_minima[2])]
+                    
+                    if len(between_indices_1) > 0 and len(between_indices_2) > 0:
+                        peak1 = window.loc[between_indices_1]['High'].max()
+                        peak2 = window.loc[between_indices_2]['High'].max()
+                        
+                        if (peak1 > first_min * 1.05 and peak1 > second_min * 1.05 and
+                            peak2 > second_min * 1.05 and peak2 > third_min * 1.05):
+                            # Triple bottom confirmed
+                            self.df.loc[self.df.index[i], 'triple_bottom'] = True
+        
+        return {
+            'triple_top': self.df['triple_top'],
+            'triple_bottom': self.df['triple_bottom']
+        }
+    
+    def detect_trading_range(self, lookback=60, tolerance=0.05, min_touches=4):
+        """
+        Detect if price is trading in a range (sideways market)
+        
+        Args:
+            lookback: Number of periods to look back (default: 60)
+            tolerance: Price tolerance for range width (default: 5%)
+            min_touches: Minimum number of touches to top/bottom of range (default: 4)
+            
+        Returns:
+            Dictionary with trading range information
+        """
+        # Initialize result columns
+        self.df['in_range'] = False
+        
+        # Need at least 'lookback' periods of data
+        if len(self.df) < lookback:
+            return {'in_range': False}
+        
+        # Iterate through each row starting from lookback
+        for i in range(lookback, len(self.df)):
+            # Get window of data
+            window = self.df.iloc[i-lookback:i+1]
+            
+            # Find highest high and lowest low in the window
+            highest_high = window['High'].max()
+            lowest_low = window['Low'].min()
+            
+            # Calculate range width
+            range_width = highest_high - lowest_low
+            range_midpoint = (highest_high + lowest_low) / 2
+            
+            # Check if range is within tolerance (not too wide)
+            if range_width / range_midpoint <= tolerance:
+                # Count touches to the top and bottom of the range
+                upper_touches = sum((window['High'] >= highest_high * 0.98) & (window['High'] <= highest_high * 1.02))
+                lower_touches = sum((window['Low'] >= lowest_low * 0.98) & (window['Low'] <= lowest_low * 1.02))
+                
+                # Check if there are enough touches to confirm the range
+                if upper_touches + lower_touches >= min_touches:
+                    self.df.loc[self.df.index[i], 'in_range'] = True
+                    self.df.loc[self.df.index[i], 'range_top'] = highest_high
+                    self.df.loc[self.df.index[i], 'range_bottom'] = lowest_low
+                    self.df.loc[self.df.index[i], 'range_midpoint'] = range_midpoint
+        
+        # Range breakout signals
+        if 'range_top' in self.df.columns and 'range_bottom' in self.df.columns:
+            self.df['range_breakout_up'] = (
+                self.df['in_range'].shift(1) & 
+                (self.df['Close'] > self.df['range_top'].shift(1))
+            )
+            
+            self.df['range_breakout_down'] = (
+                self.df['in_range'].shift(1) & 
+                (self.df['Close'] < self.df['range_bottom'].shift(1))
+            )
+        
+        return {
+            'in_range': self.df['in_range']
+        }
+    
+    def detect_flag_patterns(self, lookback=30, pole_threshold=0.15, flag_threshold=0.05, max_flag_bars=15):
+        """
+        Detect bull and bear flag patterns
+        
+        Args:
+            lookback: Number of periods to look back (default: 30)
+            pole_threshold: Minimum size of the pole as % of price (default: 15%)
+            flag_threshold: Maximum size of the flag as % of price (default: 5%)
+            max_flag_bars: Maximum length of the flag consolidation (default: 15)
+            
+        Returns:
+            Dictionary with bull and bear flag indicators
+        """
+        # Initialize result columns
+        self.df['bull_flag'] = False
+        self.df['bear_flag'] = False
+        
+        # Need at least 'lookback' periods of data
+        if len(self.df) < lookback:
+            return {'bull_flag': False, 'bear_flag': False}
+        
+        # Iterate through each row starting from lookback
+        for i in range(lookback, len(self.df)):
+            # Ensure we have enough bars to check for a flag
+            if i < max_flag_bars + 5:
+                continue
+                
+            # Get window of data for the pole and potential flag
+            potential_flag = self.df.iloc[i-max_flag_bars:i+1]
+            potential_pole = self.df.iloc[i-max_flag_bars-5:i-max_flag_bars]
+            
+            # Bull flag: Strong upward move followed by sideways/slight downward consolidation
+            if len(potential_pole) > 0:
+                # Calculate pole height (sharp upward move)
+                pole_low = potential_pole['Low'].min()
+                pole_high = potential_pole['High'].max()
+                pole_height = pole_high - pole_low
+                
+                # Calculate flag height (consolidation)
+                flag_high = potential_flag['High'].max()
+                flag_low = potential_flag['Low'].min()
+                flag_height = flag_high - flag_low
+                
+                # Check for bull flag pattern
+                if (pole_height / pole_low >= pole_threshold and  # Significant pole
+                    flag_height / flag_low <= flag_threshold and  # Small consolidation
+                    flag_high <= pole_high and  # Flag within or below pole high
+                    flag_low >= pole_low):  # Flag above pole low
+                    self.df.loc[self.df.index[i], 'bull_flag'] = True
+                
+                # Check for bear flag pattern (downward pole followed by consolidation)
+                if (pole_height / pole_high >= pole_threshold and  # Significant downward pole
+                    flag_height / flag_high <= flag_threshold and  # Small consolidation
+                    flag_low >= pole_low and  # Flag within or above pole low
+                    flag_high <= pole_high):  # Flag below pole high
+                    self.df.loc[self.df.index[i], 'bear_flag'] = True
+        
+        return {
+            'bull_flag': self.df['bull_flag'],
+            'bear_flag': self.df['bear_flag']
+        }
+    
+    #
+    # 18. REWARD TO RISK RATIO
+    # 
+    
+    def calculate_reward_risk_ratio(self, target_multiplier=1.5, stop_multiplier=1.0):
+        """
+        Calculate reward to risk ratio based on ATR for dynamic targets and stops
+        
+        Args:
+            target_multiplier: ATR multiplier for target calculation (default: 1.5)
+            stop_multiplier: ATR multiplier for stop calculation (default: 1.0)
+            
+        Returns:
+            Dictionary with RRR values for long and short trades
+        """
+        # Ensure ATR is calculated
+        if 'atr' not in self.df.columns:
+            self.calculate_atr()
+            
+        # Calculate potential stops and targets
+        self.df['long_entry'] = self.df['Close']
+        self.df['long_stop'] = self.df['Close'] - (self.df['atr'] * stop_multiplier)
+        self.df['long_target'] = self.df['Close'] + (self.df['atr'] * target_multiplier)
+        
+        self.df['short_entry'] = self.df['Close']
+        self.df['short_stop'] = self.df['Close'] + (self.df['atr'] * stop_multiplier)
+        self.df['short_target'] = self.df['Close'] - (self.df['atr'] * target_multiplier)
+        
+        # Calculate reward:risk ratios
+        self.df['long_rrr'] = (self.df['long_target'] - self.df['long_entry']) / (self.df['long_entry'] - self.df['long_stop'])
+        self.df['short_rrr'] = (self.df['short_entry'] - self.df['short_target']) / (self.df['short_stop'] - self.df['short_entry'])
+        
+        # Check if RRR meets minimum threshold
+        min_rrr = 1.5  # Minimum RRR threshold
+        self.df['long_rrr_valid'] = self.df['long_rrr'] >= min_rrr
+        self.df['short_rrr_valid'] = self.df['short_rrr'] >= min_rrr
+        
+        return {
+            'long_rrr': self.df['long_rrr'],
+            'short_rrr': self.df['short_rrr'],
+            'long_rrr_valid': self.df['long_rrr_valid'],
+            'short_rrr_valid': self.df['short_rrr_valid']
+        }
+    
+    #
+    # SIGNAL GENERATION METHODS
+    #
+    
+    def get_latest_indicator_signals(self):
+        """
+        Get trading signals based on the latest values of all indicators
+        
+        Returns:
+            Dictionary with indicator names and their signals
+        """
+        if len(self.df) == 0:
+            return {}
+        
+        # Get the latest row of data
+        latest = self.df.iloc[-1]
+        
+        # Dictionary to store indicator signals
+        signals = {}
+        
+        # Support and Resistance signals
+        if 'nearest_support' in self.df.columns and 'nearest_resistance' in self.df.columns:
+            if not pd.isna(latest['nearest_support']) and not pd.isna(latest['nearest_resistance']):
+                support_distance = latest.get('support_distance_pct', 0)
+                resistance_distance = latest.get('resistance_distance_pct', 0)
+                
+                signals['support_resistance'] = {
+                    'signal': 'BUY' if support_distance < 2.0 else 
+                             'SELL' if resistance_distance < 2.0 else 'NEUTRAL',
+                    'strength': 4 if support_distance < 1.0 or resistance_distance < 1.0 else 
+                               3 if support_distance < 2.0 or resistance_distance < 2.0 else 1,
+                    'description': f'Price near support ({support_distance:.2f}% away)' if support_distance < resistance_distance 
+                                  else f'Price near resistance ({resistance_distance:.2f}% away)'
+                }
+        
+        # Fibonacci signals
+        if 'nearest_fib' in self.df.columns:
+            if not pd.isna(latest['nearest_fib']):
+                fib_level = latest['nearest_fib']
+                fib_trend = latest.get('fib_trend', 'unknown')
+                
+                # Interpret the signal based on trend and level
+                if fib_trend == 'uptrend':
+                    if fib_level <= 0.382:  # Strong retracement level in uptrend
+                        signals['fibonacci'] = {
+                            'signal': 'BUY',
+                            'strength': 3,
+                            'description': f'Price at {fib_level} Fibonacci retracement in uptrend'
+                        }
+                    elif fib_level >= 0.618:  # Deep retracement, potential reversal
+                        signals['fibonacci'] = {
+                            'signal': 'SELL',
+                            'strength': 2,
+                            'description': f'Price at deep {fib_level} Fibonacci retracement in uptrend'
+                        }
+                elif fib_trend == 'downtrend':
+                    if fib_level <= 0.382:  # Shallow retracement in downtrend
+                        signals['fibonacci'] = {
+                            'signal': 'SELL',
+                            'strength': 3,
+                            'description': f'Price at {fib_level} Fibonacci retracement in downtrend'
+                        }
+                    elif fib_level >= 0.618:  # Deep retracement, potential reversal
+                        signals['fibonacci'] = {
+                            'signal': 'BUY',
+                            'strength': 2,
+                            'description': f'Price at deep {fib_level} Fibonacci retracement in downtrend'
+                        }
+        
+        # Volume signals
+        if 'volume_ratio_20' in self.df.columns:
+            volume_ratio = latest['volume_ratio_20']
+            price_change = latest['Close'] > latest['Open']
+            
+            signals['volume'] = {
+                'signal': 'BUY' if price_change and volume_ratio > 1.5 else 
+                         'SELL' if not price_change and volume_ratio > 1.5 else 'NEUTRAL',
+                'strength': 3 if volume_ratio > 2.0 else 
+                           2 if volume_ratio > 1.5 else 1,
+                'description': f'High volume ({volume_ratio:.2f}x average) with {"up" if price_change else "down"} price'
+            }
+        
+        # OBV signals
+        if 'obv_bullish' in self.df.columns:
+            signals['obv'] = {
+                'signal': 'BUY' if latest['obv_bullish'] else 'SELL',
+                'strength': 2,
+                'description': 'OBV rising above EMA' if latest['obv_bullish'] else 'OBV falling below EMA'
+            }
+        
+        # VWAP signals
+        if 'above_vwap' in self.df.columns:
+            signals['vwap'] = {
+                'signal': 'BUY' if latest['above_vwap'] else 'SELL',
+                'strength': 2,
+                'description': 'Price above VWAP' if latest['above_vwap'] else 'Price below VWAP'
+            }
+        
+        # Moving Average signals
+        if 'sma_20' in self.df.columns and 'sma_50' in self.df.columns:
+            signals['ma_crossover'] = {
+                'signal': 'BUY' if latest['sma_20'] > latest['sma_50'] else 'SELL',
+                'strength': 3 if latest.get('sma_20_50_bullish_cross', False) or latest.get('sma_20_50_bearish_cross', False) else 2,
+                'description': '20-period SMA above 50-period SMA' if latest['sma_20'] > latest['sma_50'] else '20-period SMA below 50-period SMA'
+            }
+        
+        # Price vs Moving Average signals
+        if 'sma_200' in self.df.columns:
+            signals['price_vs_ma'] = {
+                'signal': 'BUY' if latest['Close'] > latest['sma_200'] else 'SELL',
+                'strength': 2,
+                'description': 'Price above 200-period SMA' if latest['Close'] > latest['sma_200'] else 'Price below 200-period SMA'
+            }
+        
+        # RSI signals
+        if 'rsi' in self.df.columns:
+            if latest['rsi_oversold']:
+                signals['rsi'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': f'RSI oversold at {latest["rsi"]:.2f}'
+                }
+            elif latest['rsi_overbought']:
+                signals['rsi'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': f'RSI overbought at {latest["rsi"]:.2f}'
+                }
+            elif latest.get('rsi_bullish_divergence', False):
+                signals['rsi'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Bullish RSI divergence'
+                }
+            elif latest.get('rsi_bearish_divergence', False):
+                signals['rsi'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Bearish RSI divergence'
+                }
+            else:
+                signals['rsi'] = {
+                    'signal': 'BUY' if latest['rsi'] < 40 else 'SELL' if latest['rsi'] > 60 else 'NEUTRAL',
+                    'strength': 1,
+                    'description': f'RSI at {latest["rsi"]:.2f}'
+                }
+        
+        # MACD signals
+        if 'macd_bullish_crossover' in self.df.columns and 'macd_bearish_crossover' in self.df.columns:
+            if latest['macd_bullish_crossover']:
+                signals['macd'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': 'MACD line crossed above signal line'
+                }
+            elif latest['macd_bearish_crossover']:
+                signals['macd'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': 'MACD line crossed below signal line'
+                }
+            elif latest.get('macd_bullish_divergence', False):
+                signals['macd'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Bullish MACD divergence'
+                }
+            elif latest.get('macd_bearish_divergence', False):
+                signals['macd'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Bearish MACD divergence'
+                }
+            else:
+                # Check MACD histogram direction
+                if 'macd_histogram' in self.df.columns:
+                    hist_direction = latest.get('macd_histogram_rising', False)
+                    signals['macd'] = {
+                        'signal': 'BUY' if hist_direction else 'SELL',
+                        'strength': 2,
+                        'description': 'MACD histogram increasing' if hist_direction else 'MACD histogram decreasing'
+                    }
+        
+        # Bollinger Bands signals
+        if 'bb_oversold' in self.df.columns and 'bb_overbought' in self.df.columns:
+            if latest['bb_oversold']:
+                signals['bollinger'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Price below lower Bollinger Band'
+                }
+            elif latest['bb_overbought']:
+                signals['bollinger'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Price above upper Bollinger Band'
+                }
+            elif latest.get('bb_squeeze', False):
+                signals['bollinger'] = {
+                    'signal': 'NEUTRAL',
+                    'strength': 2,
+                    'description': 'Bollinger Band squeeze (low volatility)'
+                }
+            else:
+                # Check if price is moving away from middle band
+                if 'bb_middle' in self.df.columns:
+                    distance_to_middle = abs(latest['Close'] - latest['bb_middle'])
+                    prev_distance = abs(self.df['Close'].iloc[-2] - self.df['bb_middle'].iloc[-2])
+                    moving_outward = distance_to_middle > prev_distance
+                    
+                    signals['bollinger'] = {
+                        'signal': 'BUY' if latest['Close'] > latest['bb_middle'] and moving_outward else 
+                                 'SELL' if latest['Close'] < latest['bb_middle'] and moving_outward else 'NEUTRAL',
+                        'strength': 1,
+                        'description': 'Price moving away from middle band'
+                    }
+        
+        # Stochastic signals
+        if 'stoch_bullish_crossover' in self.df.columns and 'stoch_bearish_crossover' in self.df.columns:
+            if latest.get('stoch_strong_buy', False):
+                signals['stochastic'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': '%K crossed above %D in oversold territory'
+                }
+            elif latest.get('stoch_strong_sell', False):
+                signals['stochastic'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': '%K crossed below %D in overbought territory'
+                }
+            elif latest['stoch_bullish_crossover']:
+                signals['stochastic'] = {
+                    'signal': 'BUY',
+                    'strength': 2,
+                    'description': '%K crossed above %D'
+                }
+            elif latest['stoch_bearish_crossover']:
+                signals['stochastic'] = {
+                    'signal': 'SELL',
+                    'strength': 2,
+                    'description': '%K crossed below %D'
+                }
+            elif latest.get('stoch_bullish_divergence', False):
+                signals['stochastic'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Bullish Stochastic divergence'
+                }
+            elif latest.get('stoch_bearish_divergence', False):
+                signals['stochastic'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Bearish Stochastic divergence'
+                }
+        
+        # StochRSI signals
+        if 'stoch_rsi_bullish_crossover' in self.df.columns and 'stoch_rsi_bearish_crossover' in self.df.columns:
+            if latest.get('stoch_rsi_strong_buy', False):
+                signals['stoch_rsi'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': 'StochRSI %K crossed above %D in oversold territory'
+                }
+            elif latest.get('stoch_rsi_strong_sell', False):
+                signals['stoch_rsi'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': 'StochRSI %K crossed below %D in overbought territory'
+                }
+            elif latest['stoch_rsi_bullish_crossover']:
+                signals['stoch_rsi'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'StochRSI %K crossed above %D'
+                }
+            elif latest['stoch_rsi_bearish_crossover']:
+                signals['stoch_rsi'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'StochRSI %K crossed below %D'
+                }
+        
+        # ADX signals
+        if 'adx' in self.df.columns and 'adx_strong_trend' in self.df.columns:
+            if latest.get('adx_strong_buy', False):
+                signals['adx'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': f'Strong uptrend (ADX: {latest["adx"]:.2f}) with increasing +DI'
+                }
+            elif latest.get('adx_strong_sell', False):
+                signals['adx'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': f'Strong downtrend (ADX: {latest["adx"]:.2f}) with increasing -DI'
+                }
+            elif latest['adx_bullish_crossover']:
+                signals['adx'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': 'Strong trend with +DI crossing above -DI'
+                }
+            elif latest['adx_bearish_crossover']:
+                signals['adx'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': 'Strong trend with +DI crossing below -DI'
+                }
+            elif latest['adx_strong_trend']:
+                signals['adx'] = {
+                    'signal': 'BUY' if latest['plus_di'] > latest['minus_di'] else 'SELL',
+                    'strength': 3,
+                    'description': f'Strong trend (ADX: {latest["adx"]:.2f}) with {"positive" if latest["plus_di"] > latest["minus_di"] else "negative"} direction'
+                }
+            elif latest['adx_weak_trend']:
+                signals['adx'] = {
+                    'signal': 'NEUTRAL',
+                    'strength': 1,
+                    'description': f'Weak trend (ADX: {latest["adx"]:.2f})'
+                }
+        
+        # Aroon signals
+        if 'aroon_bullish' in self.df.columns and 'aroon_bearish' in self.df.columns:
+            if latest.get('aroon_strong_bull', False):
+                signals['aroon'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': 'Strong bullish trend (Aroon Up > 70, Aroon Down < 30)'
+                }
+            elif latest.get('aroon_strong_bear', False):
+                signals['aroon'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': 'Strong bearish trend (Aroon Down > 70, Aroon Up < 30)'
+                }
+            elif latest['aroon_bullish']:
+                signals['aroon'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Bullish trend (Aroon Up > 50, Aroon Down < 30)'
+                }
+            elif latest['aroon_bearish']:
+                signals['aroon'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Bearish trend (Aroon Down > 50, Aroon Up < 30)'
+                }
+        
+        # ATR and Supertrend signals
+        if 'supertrend_buy' in self.df.columns and 'supertrend_sell' in self.df.columns:
+            if latest['supertrend_buy']:
+                signals['supertrend'] = {
+                    'signal': 'BUY',
+                    'strength': 4,
+                    'description': 'Supertrend changed from bearish to bullish'
+                }
+            elif latest['supertrend_sell']:
+                signals['supertrend'] = {
+                    'signal': 'SELL',
+                    'strength': 4,
+                    'description': 'Supertrend changed from bullish to bearish'
+                }
+            else:
+                signals['supertrend'] = {
+                    'signal': 'BUY' if latest['supertrend_direction'] else 'SELL',
+                    'strength': 3,
+                    'description': 'In supertrend uptrend' if latest['supertrend_direction'] else 'In supertrend downtrend'
+                }
+        
+        # Alligator signals
+        if 'alligator_buy' in self.df.columns and 'alligator_sell' in self.df.columns:
+            if latest['alligator_sleeping']:
+                signals['alligator'] = {
+                    'signal': 'NEUTRAL',
+                    'strength': 1,
+                    'description': 'Alligator sleeping (flat market)'
+                }
+            elif latest['alligator_buy']:
+                signals['alligator'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Alligator in feeding phase (uptrend)'
+                }
+            elif latest['alligator_sell']:
+                signals['alligator'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Alligator in feeding phase (downtrend)'
+                }
+        
+        # CPR signals
+        if 'above_cpr' in self.df.columns and 'below_cpr' in self.df.columns:
+            if latest.get('cpr_breakout_up', False):
+                signals['cpr'] = {
+                    'signal': 'BUY',
+                    'strength': 3,
+                    'description': 'Breakout above CPR top'
+                }
+            elif latest.get('cpr_breakout_down', False):
+                signals['cpr'] = {
+                    'signal': 'SELL',
+                    'strength': 3,
+                    'description': 'Breakout below CPR bottom'
+                }
+            elif latest['above_cpr']:
+                signals['cpr'] = {
+                    'signal': 'BUY',
+                    'strength': 2,
+                    'description': 'Price above CPR'
+                }
+            elif latest['below_cpr']:
+                signals['cpr'] = {
+                    'signal': 'SELL',
+                    'strength': 2,
+                    'description': 'Price below CPR'
+                }
+            elif latest['inside_cpr']:
+                signals['cpr'] = {
+                    'signal': 'NEUTRAL',
+                    'strength': 1,
+                    'description': 'Price inside CPR'
+                }
+        
+        # Chart pattern signals (Dow Theory)
+        pattern_signals = {}
+        
+        if latest.get('double_top', False):
+            pattern_signals['double_top'] = {
+                'signal': 'SELL',
+                'strength': 4,
+                'description': 'Double top pattern detected'
+            }
+        
+        if latest.get('double_bottom', False):
+            pattern_signals['double_bottom'] = {
+                'signal': 'BUY',
+                'strength': 4,
+                'description': 'Double bottom pattern detected'
+            }
+        
+        if latest.get('triple_top', False):
+            pattern_signals['triple_top'] = {
+                'signal': 'SELL',
+                'strength': 5,
+                'description': 'Triple top pattern detected'
+            }
+        
+        if latest.get('triple_bottom', False):
+            pattern_signals['triple_bottom'] = {
+                'signal': 'BUY',
+                'strength': 5,
+                'description': 'Triple bottom pattern detected'
+            }
+        
+        if latest.get('in_range', False):
+            range_width = latest.get('range_top', 0) - latest.get('range_bottom', 0)
+            range_position = (latest['Close'] - latest.get('range_bottom', 0)) / range_width if range_width > 0 else 0.5
+            
+            pattern_signals['trading_range'] = {
+                'signal': 'BUY' if range_position < 0.3 else 'SELL' if range_position > 0.7 else 'NEUTRAL',
+                'strength': 2,
+                'description': f'Trading in range ({range_position:.2%} from bottom)'
+            }
+        
+        if latest.get('range_breakout_up', False):
+            pattern_signals['range_breakout'] = {
+                'signal': 'BUY',
+                'strength': 4,
+                'description': 'Bullish breakout from trading range'
+            }
+        
+        if latest.get('range_breakout_down', False):
+            pattern_signals['range_breakout'] = {
+                'signal': 'SELL',
+                'strength': 4,
+                'description': 'Bearish breakdown from trading range'
+            }
+        
+        if latest.get('bull_flag', False):
+            pattern_signals['flag'] = {
+                'signal': 'BUY',
+                'strength': 4,
+                'description': 'Bull flag pattern detected'
+            }
+        
+        if latest.get('bear_flag', False):
+            pattern_signals['flag'] = {
+                'signal': 'SELL',
+                'strength': 4,
+                'description': 'Bear flag pattern detected'
+            }
+        
+        # Add pattern signals to the main signals dictionary
+        signals.update(pattern_signals)
+        
+        # Reward to Risk ratio signals
+        if 'long_rrr_valid' in self.df.columns and 'short_rrr_valid' in self.df.columns:
+            long_rrr = latest.get('long_rrr', 0)
+            short_rrr = latest.get('short_rrr', 0)
+            
+            signals['rrr'] = {
+                'signal': 'BUY' if latest['long_rrr_valid'] and not latest['short_rrr_valid'] else 
+                         'SELL' if latest['short_rrr_valid'] and not latest['long_rrr_valid'] else
+                         'BUY' if long_rrr > short_rrr else
+                         'SELL' if short_rrr > long_rrr else 'NEUTRAL',
+                'strength': 3 if (latest['long_rrr_valid'] and long_rrr > 2.0) or 
+                               (latest['short_rrr_valid'] and short_rrr > 2.0) else 2,
+                'description': f'Long RRR: {long_rrr:.2f}, Short RRR: {short_rrr:.2f}'
+            }
+        
+        return signals
+
+    def get_indicator_based_signal(self):
+        """
+        Get an overall trading signal based on all indicators
+        
+        Returns:
+            Dictionary with overall signal and details
+        """
+        # Get signals from all indicators
+        indicator_signals = self.get_latest_indicator_signals()
+        
+        if not indicator_signals:
+            return {
+                'overall_signal': 'NEUTRAL',
+                'overall_strength': 0,
+                'confidence_score': 0,
+                'buy_count': 0,
+                'sell_count': 0,
+                'neutral_count': 0,
+                'details': {}
+            }
+        
+        # Count buy, sell, and neutral signals
+        buy_signals = [sig for sig in indicator_signals.values() if sig['signal'] == 'BUY']
+        sell_signals = [sig for sig in indicator_signals.values() if sig['signal'] == 'SELL']
+        neutral_signals = [sig for sig in indicator_signals.values() if sig['signal'] == 'NEUTRAL']
+        
+        buy_count = len(buy_signals)
+        sell_count = len(sell_signals)
+        neutral_count = len(neutral_signals)
+        
+        # Calculate total strength of buy and sell signals
+        buy_strength = sum(sig['strength'] for sig in buy_signals)
+        sell_strength = sum(sig['strength'] for sig in sell_signals)
+        
+        # Calculate overall signal
+        if buy_count > sell_count and buy_strength > sell_strength:
+            overall_signal = 'BUY'
+            # Calculate strength based on buy signal strengths and margin over sell signals
+            overall_strength = min(5, max(1, round(buy_strength / (buy_count + 1))))
+            confidence_score = min(10, max(1, round((buy_strength - sell_strength) / 2)))
+        elif sell_count > buy_count and sell_strength > buy_strength:
+            overall_signal = 'SELL'
+            # Calculate strength based on sell signal strengths and margin over buy signals
+            overall_strength = min(5, max(1, round(sell_strength / (sell_count + 1))))
+            confidence_score = min(10, max(1, round((sell_strength - buy_strength) / 2)))
+        else:
+            # If nearly equal, check signal strengths
+            if buy_strength > sell_strength * 1.5:
+                overall_signal = 'BUY'
+                overall_strength = min(5, max(1, round(buy_strength / (buy_count + sell_count + 1))))
+                confidence_score = min(10, max(1, round((buy_strength - sell_strength) / 3)))
+            elif sell_strength > buy_strength * 1.5:
+                overall_signal = 'SELL'
+                overall_strength = min(5, max(1, round(sell_strength / (buy_count + sell_count + 1))))
+                confidence_score = min(10, max(1, round((sell_strength - buy_strength) / 3)))
+            else:
+                overall_signal = 'NEUTRAL'
+                overall_strength = 0
+                confidence_score = 0
+        
+        # Check the RRR for the suggested signal
+        if overall_signal == 'BUY' and 'long_rrr_valid' in self.df.columns:
+            if not self.df['long_rrr_valid'].iloc[-1]:
+                # RRR below threshold, reduce strength
+                overall_strength = max(1, overall_strength - 1)
+                confidence_score = max(1, confidence_score - 2)
+        elif overall_signal == 'SELL' and 'short_rrr_valid' in self.df.columns:
+            if not self.df['short_rrr_valid'].iloc[-1]:
+                # RRR below threshold, reduce strength
+                overall_strength = max(1, overall_strength - 1)
+                confidence_score = max(1, confidence_score - 2)
+        
+        return {
+            'overall_signal': overall_signal,
+            'overall_strength': overall_strength,
+            'confidence_score': confidence_score,
+            'buy_count': buy_count,
+            'sell_count': sell_count,
+            'neutral_count': neutral_count,
+            'buy_strength': buy_strength,
+            'sell_strength': sell_strength,
+            'details': indicator_signals
+        }
+    
+    def validate_pattern_signal(self, pattern_signal):
+        """
+        Validate candlestick pattern signal using technical indicators
+        
+        Args:
+            pattern_signal: Dictionary with pattern signal information
+            
+        Returns:
+            Dictionary with validated signal information
+        """
+        # Get indicator signal
+        indicator_signal = self.get_indicator_based_signal()
+        
+        # Extract signal directions
+        pattern_direction = pattern_signal['overall_signal']
+        indicator_direction = indicator_signal['overall_signal']
+        
+        # Check if signals agree
+        signals_agree = pattern_direction == indicator_direction
+        
+        # Combined signal calculation
+        if signals_agree and pattern_direction != 'NEUTRAL':
+            # If signals agree, strengthen the signal
+            combined_strength = min(5, pattern_signal['overall_strength'] + 1)
+            combined_signal = pattern_direction
+            confidence_score = min(10, indicator_signal['confidence_score'] + 2)
+        elif pattern_direction != 'NEUTRAL' and indicator_direction != 'NEUTRAL':
+            # If signals disagree, compare strengths
+            if pattern_signal['overall_strength'] >= indicator_signal['overall_strength']:
+                # Pattern signal is stronger or equal
+                combined_strength = max(1, pattern_signal['overall_strength'] - 1)
+                combined_signal = pattern_direction
+                confidence_score = max(1, indicator_signal['confidence_score'] - 2)
+            else:
+                # Indicator signal is stronger
+                combined_strength = max(1, indicator_signal['overall_strength'] - 1)
+                combined_signal = indicator_direction
+                confidence_score = max(1, indicator_signal['confidence_score'] - 2)
+        else:
+            # If either signal is neutral, use the non-neutral one
+            if pattern_direction != 'NEUTRAL':
+                combined_signal = pattern_direction
+                combined_strength = pattern_signal['overall_strength']
+                confidence_score = max(1, indicator_signal['confidence_score'] - 1)
+            elif indicator_direction != 'NEUTRAL':
+                combined_signal = indicator_direction
+                combined_strength = indicator_signal['overall_strength']
+                confidence_score = max(1, indicator_signal['confidence_score'] - 1)
+            else:
+                combined_signal = 'NEUTRAL'
+                combined_strength = 0
+                confidence_score = 0
+        
+        # Get supporting and opposing indicators
+        supporting_indicators = []
+        opposing_indicators = []
+        
+        for name, indicator in indicator_signal['details'].items():
+            if indicator['signal'] == combined_signal:
+                supporting_indicators.append({
+                    'name': name,
+                    'strength': indicator['strength'],
+                    'description': indicator['description']
+                })
+            elif indicator['signal'] != 'NEUTRAL' and indicator['signal'] != combined_signal:
+                opposing_indicators.append({
+                    'name': name,
+                    'strength': indicator['strength'],
+                    'description': indicator['description']
+                })
+        
+        # Build result with detailed information
+        result = {
+            'combined_signal': combined_signal,
+            'combined_strength': combined_strength,
+            'confidence_score': confidence_score,
+            'signals_agree': signals_agree,
+            'pattern_signal': pattern_signal,
+            'indicator_signal': indicator_signal,
+            'confirmation': signals_agree and pattern_direction != 'NEUTRAL',
+            'supporting_indicators': supporting_indicators,
+            'opposing_indicators': opposing_indicators,
+            'supporting_count': len(supporting_indicators),
+            'opposing_count': len(opposing_indicators)
+        }
+        
+        return result
+    
+    def get_trading_checklist_result(self, pattern_signal):
+        """
+        Generate a trading checklist result based on the current pattern and indicators
+        
+        Args:
+            pattern_signal: Dictionary with candlestick pattern signal
+            
+        Returns:
+            Dictionary with checklist results and recommendation
+        """
+        # Get current price and latest data
+        if len(self.df) == 0:
+            return {'recommendation': 'NEUTRAL', 'checklist_passed': False, 'reason': 'No data available'}
+        
+        latest = self.df.iloc[-1]
+        current_price = latest['Close']
+        
+        # 1. Check for recognizable candlestick pattern
+        has_pattern = pattern_signal['overall_signal'] != 'NEUTRAL'
+        
+        # 2. S&R alignment with pattern
+        sr_aligned = False
+        if has_pattern:
+            if pattern_signal['overall_signal'] == 'BUY' and 'nearest_support' in self.df.columns:
+                support_price = latest.get('nearest_support', 0)
+                if not pd.isna(support_price):
+                    # For buy signal, low should be near support
+                    sr_aligned = (latest['Low'] - support_price) / support_price < 0.02  # Within 2%
+            elif pattern_signal['overall_signal'] == 'SELL' and 'nearest_resistance' in self.df.columns:
+                resistance_price = latest.get('nearest_resistance', float('inf'))
+                if not pd.isna(resistance_price):
+                    # For sell signal, high should be near resistance
+                    sr_aligned = (resistance_price - latest['High']) / latest['High'] < 0.02  # Within 2%
+        
+        # 3. Volume confirmation
+        volume_confirms = latest.get('high_volume', False)
+        
+        # 4. Indicator confirmation (from validate_pattern_signal)
+        indicator_validation = self.validate_pattern_signal(pattern_signal)
+        indicators_confirm = indicator_validation['confirmation']
+        
+        # 5. Reward to Risk Ratio check
+        rrr_confirms = False
+        min_rrr = 1.5  # Minimum RRR threshold
+        
+        if pattern_signal['overall_signal'] == 'BUY' and 'long_rrr' in self.df.columns:
+            rrr_confirms = latest['long_rrr'] >= min_rrr
+            rrr_value = latest['long_rrr']
+        elif pattern_signal['overall_signal'] == 'SELL' and 'short_rrr' in self.df.columns:
+            rrr_confirms = latest['short_rrr'] >= min_rrr
+            rrr_value = latest['short_rrr']
+        else:
+            rrr_value = 0
+        
+        # Calculate how many checklist items passed
+        checklist_items = [has_pattern, sr_aligned, volume_confirms, indicators_confirm, rrr_confirms]
+        passed_count = sum(checklist_items)
+        
+        # Prepare checklist results
+        checklist_results = {
+            'has_pattern': has_pattern,
+            'sr_aligned': sr_aligned,
+            'volume_confirms': volume_confirms,
+            'indicators_confirm': indicators_confirm,
+            'rrr_confirms': rrr_confirms,
+            'rrr_value': rrr_value,
+            'passed_count': passed_count,
+            'total_count': len(checklist_items)
+        }
+        
+        # Determine recommendation
+        if has_pattern:  # Must have a pattern
+            if passed_count >= 4:  # At least 4 out of 5 items passed
+                recommendation = pattern_signal['overall_signal']
+                confidence = 'HIGH'
+                position_size = 'FULL'
+            elif passed_count == 3:  # 3 items passed
+                recommendation = pattern_signal['overall_signal']
+                confidence = 'MEDIUM'
+                position_size = 'REDUCED'
+            elif passed_count == 2 and (sr_aligned or rrr_confirms):  # 2 items with either S&R or RRR
+                recommendation = pattern_signal['overall_signal']
+                confidence = 'LOW'
+                position_size = 'SMALL'
+            else:
+                recommendation = 'NEUTRAL'
+                confidence = 'VERY_LOW'
+                position_size = 'NONE'
+        else:
+            recommendation = 'NEUTRAL'
+            confidence = 'NONE'
+            position_size = 'NONE'
+        
+        return {
+            'recommendation': recommendation,
+            'confidence': confidence,
+            'position_size': position_size,
+            'checklist_results': checklist_results,
+            'validation_details': indicator_validation,
+            'pattern_signal': pattern_signal
+        }
