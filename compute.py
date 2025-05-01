@@ -82,7 +82,7 @@ class EmptyDataError(DataFetchError):
 
 def setup_logging(config):
     """
-    Setup logging configuration with deduplication protection
+    Setup logging configuration with strong deduplication protection
     
     Args:
         config: Configuration dictionary
@@ -90,46 +90,46 @@ def setup_logging(config):
     Returns:
         Logger instance
     """
+    # Get log directory
     log_dir = config.get('LOG_DIRECTORY', 'logs')
-    
-    # Create log directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
     
-    # Set up root logger first
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        # Configure root logger only if not already configured
-        logging.basicConfig(level=logging.WARNING,
-                          format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Create a unique log file for this run
+    run_id = config.get('RUN_ID', str(uuid.uuid4())[:8])
+    log_file = os.path.join(log_dir, f'trading_bot_{datetime.datetime.now().strftime("%Y%m%d")}_{run_id}.log')
     
-    # Get our specific logger
+    # Reset all logging
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    # Get our logger
     logger = logging.getLogger('compute')
     
-    # Return existing logger if it's already set up
-    if logger.handlers:
-        # Clear existing handlers to avoid duplication
-        for handler in logger.handlers[:]:
-            logger.removeHandler(handler)
+    # Reset handlers
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
     
-    # Configure formatter
+    # Set propagate to False to prevent duplicate messages
+    logger.propagate = False
+    
+    # Create formatter
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # Setup file handler
-    log_file = os.path.join(log_dir, f'trading_bot_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+    # Create file handler
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     
-    # Setup console handler
+    # Create console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     
-    # Setup logger
+    # Set level and add handlers
     logger.setLevel(config.get('LOG_LEVEL', logging.INFO))
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    # Prevent log propagation to avoid duplicate messages
-    logger.propagate = False
+    # Log initialization
+    logger.info(f"Logging initialized for run {run_id}")
     
     return logger
 # ===============================================================
