@@ -272,7 +272,99 @@ class TradingParameters:
     # ===============================================================
     # Utility Functions
     # ===============================================================
-   
+# ===============================================================
+# Helper Functions
+# ===============================================================
+
+def setup_logging(config):
+    """
+    Setup logging configuration
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Logger instance
+    """
+    log_dir = config.get('LOG_DIRECTORY', 'logs')
+    
+    # Create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Setup logging
+    log_level = config.get('LOG_LEVEL', logging.INFO)
+    
+    # Create formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Setup file handler
+    log_file = os.path.join(log_dir, f'candlestick_bot_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    
+    # Setup console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    
+    # Setup logger
+    logger = logging.getLogger('compute')
+    logger.setLevel(log_level)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    # Prevent log messages from being propagated to the root logger
+    logger.propagate = False
+    
+    return logger
+
+
+async def send_telegram_message(message, config, logger, retry_attempts=5):
+    """
+    Send message to Telegram with retry mechanism and proper resource management
+    
+    Args:
+        message: The message text to send
+        config: Configuration with Telegram credentials
+        logger: Logger instance
+        retry_attempts: Number of retry attempts
+        
+    Returns:
+        True if message was sent successfully, False otherwise
+    """
+    if not config.get('ENABLE_TELEGRAM_ALERTS', False):
+        return False
+    
+    if not config.get('TELEGRAM_BOT_TOKEN', '') or not config.get('TELEGRAM_CHAT_ID', ''):
+        logger.error("Telegram credentials are missing")
+        return False
+        
+    delay = 1  # Initial delay in seconds
+    
+    for attempt in range(retry_attempts):
+        try:
+            async with get_telegram_bot(config.get('TELEGRAM_BOT_TOKEN', '')) as bot:
+                # Use MarkdownV2 for formatted messages
+                await bot.send_message(
+                    chat_id=config.get('TELEGRAM_CHAT_ID', ''), 
+                    text=message, 
+                    parse_mode='MarkdownV2'
+                )
+                logger.info(f"Successfully sent telegram message (attempt {attempt+1})")
+                return True
+        except Exception as e:
+            if "Too Many Requests" in str(e):
+                retry_after = int(str(e).split("retry after ")[-1].split()[0]) if "retry after" in str(e) else delay
+                logger.error(f"Error sending Telegram message: {e}. Retrying in {retry_after} seconds.")
+                await asyncio.sleep(retry_after)
+            else:
+                logger.error(f"Error sending Telegram message: {e}. Retrying in {delay} seconds.")
+                await asyncio.sleep(delay)
+                delay *= 2  # Exponential backoff
+    
+    logger.error(f"Failed to send Telegram message after {retry_attempts} attempts")
+    return False
+
+
 def escape_telegram_markdown(text):
     """
     Escape special characters for Telegram MarkdownV2 format
@@ -292,6 +384,63 @@ def escape_telegram_markdown(text):
     
     return text
 
+
+# ===============================================================
+# System and Connection Test Functions
+# ===============================================================
+
+async def initialize_and_test(config):
+    """
+    Initialize the system and test connections
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Tuple of (logger, upstox_ok, telegram_ok)
+    """
+    # Initialize logger
+    logger = setup_logging(config)
+    
+    # Test connections
+    upstox_ok = test_upstox_connection(config, logger)
+    telegram_ok = await test_telegram_connection(config, logger) if config.get('ENABLE_TELEGRAM_ALERTS', False) else False
+    
+    return logger, upstox_ok, telegram_ok
+
+
+async def test_telegram_connection(config, logger):
+    """
+    Test connection to Telegram API
+    
+    Args:
+        config: Configuration dictionary with Telegram credentials
+        logger: Logger instance
+    
+    Returns:
+        True if connection is successful, False otherwise
+    """
+    logger.info("Testing Telegram API connection...")
+    
+    if not config.get('ENABLE_TELEGRAM_ALERTS', False):
+        logger.info("❌ Telegram notifications are disabled in config")
+        return False
+    
+    try:
+        # Escape the test message properly for MarkdownV2
+        test_message = escape_telegram_markdown("🔍 Test Message - Candlestick Pattern Bot connection test successful!")
+        result = await send_telegram_message(test_message, config, logger)
+        
+        if result:
+            logger.info("✅ Successfully sent test message to Telegram")
+            return True
+        else:
+            logger.error("❌ Failed to send test message to Telegram")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
+        return False
+   
 
     def get_stock_info_by_key(instrument_key, stock_info_dict):
         """
