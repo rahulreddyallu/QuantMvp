@@ -4023,6 +4023,32 @@ class TradingParameters:
 # ===============================================================
 # System and Connection Test Functions
 # ===============================================================
+# ===============================================================
+# Market Data Handling - Upstox Connection
+# ===============================================================
+
+def initialize_upstox(config, logger):
+    """
+    Initialize connection to Upstox API
+    
+    Args:
+        config: Configuration dictionary with API credentials
+        logger: Logger instance
+    
+    Returns:
+        Tuple of (MarketQuoteApi, ApiClient) if successful
+        Raises APIConnectionError if initialization fails
+    """
+    try:
+        api_client = ApiClient()
+        api_client.configuration.access_token = config.get('UPSTOX_ACCESS_TOKEN', '')
+        market_api = MarketQuoteApi(api_client)
+        logger.info("✅ Successfully initialized Upstox API client")
+        return market_api, api_client
+    except Exception as e:
+        logger.error(f"Error initializing Upstox API client: {e}")
+        raise APIConnectionError(f"Failed to connect to Upstox API: {str(e)}")
+        
 def test_upstox_connection(config):
     """
     Test connection to Upstox API (compatibility version)
