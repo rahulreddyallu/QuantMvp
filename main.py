@@ -1,176 +1,179 @@
 """
-Quantitative Trading Signal Generator
-Simple execution starter for the Enhanced Trading Signal Bot
+Enhanced Quantitative Analysis Engine Main Entry Point
+Runs the trading bot based on configuration settings
 
-Current Date and Time (UTC): 2025-05-01 10:58:02
-Current User's Login: rahulreddyallu
+Version: 3.5.1
+Author: rahulreddyallu
+Date: 2025-05-01
 """
 
 import os
 import sys
-import logging
+import argparse
 import asyncio
+import logging
 import datetime
 import traceback
-from typing import Dict, Any, Optional
 
-# Import configuration and compute module
-try:
-    from config import *
-    import compute
-except ImportError as e:
-    print(f"Error importing required modules: {e}")
-    print("Please ensure config.py and compute.py are in the same directory as main.py")
-    sys.exit(1)
+# Import configuration
+from config import get_config
 
-def setup_logging() -> logging.Logger:
-    """
-    Configure the logging system
-    
-    Returns:
-        Logger object configured for console and file output
-    """
-    # Create logs directory if it doesn't exist
-    os.makedirs('logs', exist_ok=True)
-    
-    # Generate log filename with current date
-    log_filename = f"logs/trading_bot_{datetime.datetime.now().strftime('%Y%m%d')}.log"
-    
-    # Configure logging to file and console
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    return logging.getLogger("trading_bot")
+# Import trading bot implementation
+from compute import (
+    setup_logging, 
+    main as compute_main, 
+    test_upstox_connection, 
+    test_telegram_connection,
+    send_startup_notification
+)
 
-async def run_analysis(config: Dict[str, Any], logger: logging.Logger) -> bool:
+async def validate_and_test_connections(config, logger):
     """
-    Run the signal generation analysis once
+    Validate configuration and test API connections
     
     Args:
         config: Configuration dictionary
-        logger: Logger object
-    
+        logger: Logger instance
+        
     Returns:
-        Boolean indicating success or failure
+        Tuple of (config_valid, upstox_ok, telegram_ok)
     """
-    logger.info("=" * 80)
-    logger.info(f"STARTING ANALYSIS - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    logger.info(f"Version: {config.get('VERSION', '3.5.0')}")
-    logger.info(f"Analyzing {len(config.get('STOCK_LIST', []))} symbols")
-    logger.info("=" * 80)
+    # Check required configuration
+    config_valid = True
     
-    try:
-        # Initialize and test connections
-        upstox_ok, telegram_ok = await compute.initialize_and_test(config)
-        
-        if not upstox_ok:
-            logger.error("Cannot proceed without Upstox API connection")
-            return False
-            
-        if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
-            logger.warning("Telegram connection failed, proceeding without notifications")
-        
-        # Send startup notification if enabled
-        if config.get('ENABLE_TELEGRAM_ALERTS', False):
-            await compute.send_startup_notification(config)
-        
-        # Run the actual analysis
-        result = await compute.run_trading_signals(config)
-        
-        logger.info("=" * 80)
-        logger.info(f"ANALYSIS COMPLETED - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        logger.info("=" * 80)
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error during analysis: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+    # Validate Upstox API credentials
+    if not config.get('UPSTOX_ACCESS_TOKEN'):
+        logger.error("UPSTOX_ACCESS_TOKEN is required but not configured")
+        config_valid = False
+    
+    # Check STOCK_LIST
+    if not config.get('STOCK_LIST'):
+        logger.error("STOCK_LIST is empty - no stocks configured for analysis")
+        config_valid = False
+    
+    # Test Upstox connection
+    upstox_ok = test_upstox_connection(config, logger)
+    if not upstox_ok:
+        logger.error("Failed to connect to Upstox API - please check your credentials")
+    
+    # Test Telegram connection if enabled
+    telegram_ok = False
+    if config.get('ENABLE_TELEGRAM_ALERTS', False):
+        if not config.get('TELEGRAM_BOT_TOKEN') or not config.get('TELEGRAM_CHAT_ID'):
+            logger.error("Telegram alerts are enabled but credentials are missing")
+            config_valid = False
+        else:
+            telegram_ok = await test_telegram_connection(config, logger)
+            if not telegram_ok:
+                logger.warning("Telegram connection failed - notifications will not be sent")
+    
+    return config_valid, upstox_ok, telegram_ok
 
-def get_config() -> Dict[str, Any]:
+async def async_main(args):
     """
-    Get configuration from config.py
+    Main async function to run the Trading Bot
     
-    Returns:
-        Dictionary with configuration values
-    """
-    config = {}
-    
-    # Import all uppercase variables from config module
-    for var in dir():
-        if var.isupper():
-            config[var] = globals()[var]
-            
-    # Provide some hardcoded defaults if not found
-    if 'VERSION' not in config:
-        config['VERSION'] = "3.5.0"
-    
-    if 'HISTORICAL_DAYS' not in config:
-        config['HISTORICAL_DAYS'] = 100
+    Args:
+        args: Command line arguments
         
-    if 'CHART_INTERVAL' not in config:
-        config['CHART_INTERVAL'] = "day"
-    
-    if 'MINIMUM_SIGNAL_STRENGTH' not in config:
-        config['MINIMUM_SIGNAL_STRENGTH'] = 3
-    
-    return config
-
-def main() -> int:
-    """
-    Main function to run the Trading Signal Bot once
-    
     Returns:
-        Exit code (0 for success, 1 for failure)
+        Exit code (0 for success, 1 for error)
     """
-    # Set up logging
-    logger = setup_logging()
-    
     try:
         # Get configuration
         config = get_config()
         
-        # Print welcome message
-        print(f"\n{'=' * 80}")
-        print(f"  Enhanced Quantitative Trading Signal Generator v{config.get('VERSION', '3.5.0')}")
-        print(f"  Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        print(f"  Analyzing {len(config.get('STOCK_LIST', []))} symbols with {config.get('HISTORICAL_DAYS', 100)} days of history")
-        print(f"  Author: rahulreddyallu")
-        print(f"{'=' * 80}\n")
+        # Override with command line arguments if provided
+        if args.access_token:
+            config['UPSTOX_ACCESS_TOKEN'] = args.access_token
         
-        # Create or get event loop
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            # If no event loop exists, create a new one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        if args.telegram_token:
+            config['TELEGRAM_BOT_TOKEN'] = args.telegram_token
             
-        # Run the analysis
-        result = loop.run_until_complete(run_analysis(config, logger))
+        if args.telegram_chat_id:
+            config['TELEGRAM_CHAT_ID'] = args.telegram_chat_id
+            
+        if args.log_dir:
+            config['LOG_DIRECTORY'] = args.log_dir
+            
+        if args.disable_telegram:
+            config['ENABLE_TELEGRAM_ALERTS'] = False
+            
+        if args.run_once:
+            config['SCHEDULED_MODE'] = False
+            config['RUN_ON_STARTUP'] = True
         
-        if result:
-            print("\n✅ Analysis completed successfully!")
-            return 0
-        else:
-            print("\n❌ Analysis failed. Check the logs for details.")
+        # Setup logging
+        logger = setup_logging(config)
+        
+        logger.info("="*70)
+        logger.info(f"Quantitative Trading Bot v{config['VERSION']} - Starting")
+        logger.info(f"Bot run by: rahulreddyallu at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        logger.info("="*70)
+        
+        # Print list of stocks being analyzed
+        stock_count = len(config.get('STOCK_LIST', []))
+        logger.info(f"Configured to analyze {stock_count} stocks with {config.get('HISTORICAL_DAYS', 100)} days of historical data")
+        
+        # Validate configuration and test connections
+        config_valid, upstox_ok, telegram_ok = await validate_and_test_connections(config, logger)
+        
+        if not config_valid:
+            logger.error("Invalid configuration - please fix the issues above")
             return 1
-            
-    except KeyboardInterrupt:
-        print("\nProcess interrupted by user.")
-        return 0
         
+        if not upstox_ok:
+            logger.error("Cannot proceed without Upstox API connection")
+            return 1
+        
+        # Send startup notification
+        if config.get('ENABLE_TELEGRAM_ALERTS', False) and telegram_ok:
+            await send_startup_notification(config, logger)
+        
+        # Run the main compute function
+        exit_code = compute_main(config)
+        return exit_code
+        
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user (Ctrl+C)")
+        return 0
     except Exception as e:
-        print(f"\n❌ Unexpected error: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Unexpected error in main function: {str(e)}")
+        logger.error(traceback.format_exc())
         return 1
 
+def main():
+    """
+    Main entry point for the Trading Bot
+    Parses command line arguments and runs the bot
+    """
+    parser = argparse.ArgumentParser(description='Enhanced Quantitative Trading Bot')
+    
+    parser.add_argument('--access-token', dest='access_token', 
+                        help='Upstox API access token')
+    
+    parser.add_argument('--telegram-token', dest='telegram_token',
+                        help='Telegram Bot API token')
+    
+    parser.add_argument('--telegram-chat-id', dest='telegram_chat_id',
+                        help='Telegram chat ID for notifications')
+    
+    parser.add_argument('--log-dir', dest='log_dir',
+                        help='Directory for log files')
+    
+    parser.add_argument('--disable-telegram', dest='disable_telegram', 
+                        action='store_true', help='Disable Telegram notifications')
+    
+    parser.add_argument('--run-once', dest='run_once', action='store_true',
+                        help='Run analysis once and exit (disable scheduling)')
+    
+    parser.add_argument('--version', action='version', version='%(prog)s 3.5.1')
+    
+    args = parser.parse_args()
+    
+    # Run the async main function
+    exit_code = asyncio.run(async_main(args))
+    sys.exit(exit_code)
+
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
