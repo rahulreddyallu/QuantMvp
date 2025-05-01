@@ -50,6 +50,7 @@ except ImportError:
 
 _INITIALIZATION_LOCK = threading.Lock()
 _BOT_INITIALIZED = False
+_LOGGING_INITIALIZED = False
 
 class TradingBotError(Exception):
     """Base exception for all trading bot errors"""
@@ -82,7 +83,7 @@ class EmptyDataError(DataFetchError):
 
 def setup_logging(config):
     """
-    Setup logging configuration with strong deduplication protection
+    Set up logging with complete protection against duplicated log entries
     
     Args:
         config: Configuration dictionary
@@ -90,46 +91,57 @@ def setup_logging(config):
     Returns:
         Logger instance
     """
+    global _LOGGING_INITIALIZED
+    
+    # Get the logger
+    logger = logging.getLogger('compute')
+    
+    # If logging is already initialized, just return the logger
+    if _LOGGING_INITIALIZED:
+        return logger
+    
+    # Set the flag to prevent re-initialization
+    _LOGGING_INITIALIZED = True
+    
     # Get log directory
     log_dir = config.get('LOG_DIRECTORY', 'logs')
     os.makedirs(log_dir, exist_ok=True)
     
-    # Create a unique log file for this run
+    # Get run ID and create a unique log file
     run_id = config.get('RUN_ID', str(uuid.uuid4())[:8])
     log_file = os.path.join(log_dir, f'trading_bot_{datetime.datetime.now().strftime("%Y%m%d")}_{run_id}.log')
     
-    # Reset all logging
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
+    # ----- Reset ALL logging -----
     
-    # Get our logger
-    logger = logging.getLogger('compute')
+    # 1. Remove all handlers from the root logger
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
     
-    # Reset handlers
+    # 2. Remove all handlers from our logger
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
-    # Set propagate to False to prevent duplicate messages
+    # 3. Disable propagation to prevent duplicate messages
     logger.propagate = False
     
-    # Create formatter
+    # 4. Create a new formatter
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # Create file handler
+    # 5. Create and add new handlers
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     
-    # Create console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     
-    # Set level and add handlers
+    # 6. Set level and add handlers
     logger.setLevel(config.get('LOG_LEVEL', logging.INFO))
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    # Log initialization
-    logger.info(f"Logging initialized for run {run_id}")
+    # Log that we've initialized
+    logger.info(f"Logging initialized successfully with unique run ID: {run_id}")
     
     return logger
 # ===============================================================
