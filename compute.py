@@ -440,16 +440,20 @@ def escape_telegram_markdown(text):
     Returns:
         Escaped text safe for Telegram MarkdownV2
     """
+    # For debugging or if escaping is causing issues, just return the text
+    # return text  # Uncomment this line to disable escaping temporarily
+    
+    if not text:
+        return ""
+    
     # Characters that need to be escaped in MarkdownV2
-    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     
     # Escape each character with a backslash
-    for char in escape_chars:
+    for char in special_chars:
         text = text.replace(char, '\\' + char)
     
     return text
-
-
 # ===============================================================
 # System and Connection Test Functions
 # ===============================================================
