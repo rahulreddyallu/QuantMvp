@@ -55,6 +55,11 @@ _BOT_INSTANCE_UUID = str(uuid.uuid4())
 _INIT_TIMESTAMP = None
 _INIT_CALLER_INFO = []
 
+# Global state tracking
+_BOT_SETUP_COMPLETE = False     # First stage initialization
+_BOT_RUNNING = False            # Second stage (scheduler running)
+
+
 class TradingBotError(Exception):
     """Base exception for all trading bot errors"""
     pass
@@ -4753,7 +4758,7 @@ async def main_async(config):
 
 def main(config=None):
     """
-    Main function with advanced diagnostics and initialization protection
+    Main function with two-stage initialization support
     
     Args:
         config: Configuration dictionary
@@ -4761,7 +4766,7 @@ def main(config=None):
     Returns:
         0 for successful execution, 1 for errors
     """
-    global _BOT_INITIALIZED, _BOT_INSTANCE_UUID, _INIT_TIMESTAMP, _INIT_CALLER_INFO
+    global _BOT_SETUP_COMPLETE, _BOT_RUNNING, _BOT_INSTANCE_UUID
     
     # Generate a unique ID for this specific call to main()
     call_id = str(uuid.uuid4())[:6]
@@ -4772,52 +4777,60 @@ def main(config=None):
     caller_stack = inspect.stack()
     caller_info = f"Called from: {caller_stack[1].filename}:{caller_stack[1].lineno}"
     
-    # Print advanced diagnostic info
+    # Print diagnostic info
     print(f"\n=== BOT STARTUP REQUEST [{call_id}] at {call_time} ===")
     print(f"Instance UUID: {_BOT_INSTANCE_UUID[:8]}")
-    print(f"Current initialization state: {_BOT_INITIALIZED}")
-    print(f"Init timestamp: {_INIT_TIMESTAMP}")
+    print(f"Setup complete: {_BOT_SETUP_COMPLETE}, Running: {_BOT_RUNNING}")
     print(f"Caller: {caller_info}")
     
-    # Try to acquire the lock with a timeout to prevent deadlocks
-    lock_acquired = False
-    try:
-        lock_acquired = _INITIALIZATION_LOCK.acquire(timeout=5)  # 5 second timeout
-        if not lock_acquired:
-            print(f"[{call_id}] WARNING: Could not acquire initialization lock after 5 seconds - possible deadlock")
-            return 1
-            
-        # Check initialization state *after* acquiring the lock
-        if _BOT_INITIALIZED:
-            print(f"[{call_id}] WARNING: Bot already initialized at {_INIT_TIMESTAMP}")
-            print(f"[{call_id}] Previous initialization: {_INIT_CALLER_INFO}")
-            print(f"[{call_id}] To start a new instance, restart the kernel/runtime")
+    # Acquire the lock to check/update initialization state
+    with _INITIALIZATION_LOCK:
+        # Check if we're already fully running
+        if _BOT_RUNNING:
+            print(f"[{call_id}] Bot is already running with scheduler - ignoring duplicate request")
             return 0
             
-        # Set initialization state and timestamp
-        print(f"[{call_id}] Setting bot initialization state to TRUE")
-        _BOT_INITIALIZED = True
-        _INIT_TIMESTAMP = call_time
-        _INIT_CALLER_INFO.append(f"{call_id} at {call_time} from {caller_info}")
+        # Check if we're in the second initialization phase
+        if _BOT_SETUP_COMPLETE and not _BOT_RUNNING:
+            print(f"[{call_id}] Setup is complete - proceeding to start scheduler (stage 2)")
+            _BOT_RUNNING = True
         
-    finally:
-        # Always release the lock
-        if lock_acquired:
-            _INITIALIZATION_LOCK.release()
-            print(f"[{call_id}] Initialization lock released")
+        # Check if we're in the first initialization phase
+        elif not _BOT_SETUP_COMPLETE:
+            print(f"[{call_id}] First initialization call - setting up (stage 1)")
+            _BOT_SETUP_COMPLETE = True
+        
+        # More than 2 calls detected
+        else:
+            print(f"[{call_id}] WARNING: Unexpected initialization state")
     
     try:
         # Set up default configuration if not provided
         if config is None:
             config = {
                 'VERSION': '3.5.1',
-                # ... other default config values ...
+                'LOG_DIRECTORY': 'logs',
+                'HISTORICAL_DAYS': 100,
+                'CHART_INTERVAL': 'day',
+                'ENABLE_TELEGRAM_ALERTS': False,
+                'ENABLE_DAILY_REPORT': True,
+                'MARKET_OPEN_HOUR': 9,
+                'MARKET_CLOSE_HOUR': 15,
+                'MARKET_DAYS': ['mon', 'tue', 'wed', 'thu', 'fri'],
+                'ANALYSIS_FREQUENCY': 1,
+                'RUN_ON_STARTUP': True,
+                'SCHEDULED_MODE': True,
+                'RUN_AT_MARKET_OPEN': True,
+                'RUN_AT_MARKET_CLOSE': True,
+                'STOCK_LIST': [],
+                'STOCK_INFO': {}
             }
         
         # Add instance and time information to config
         config['INSTANCE_UUID'] = _BOT_INSTANCE_UUID
-        config['STARTUP_TIME'] = "2025-05-01 17:59:17"  # Using the time you provided
+        config['STARTUP_TIME'] = "2025-05-01 18:03:30"  # Using the time you provided
         config['CURRENT_USER'] = "rahulreddyallu"
+        config['INITIALIZATION_STAGE'] = 2 if _BOT_RUNNING else 1
         
         # Initialize library logging with minimal settings
         logging.basicConfig(level=logging.WARNING, 
@@ -4834,7 +4847,7 @@ def main(config=None):
             loop = asyncio.get_event_loop()
             
             # Run the async main function
-            print(f"[{call_id}] Running main_async function for instance {_BOT_INSTANCE_UUID[:8]}")
+            print(f"[{call_id}] Running main_async function (stage {config['INITIALIZATION_STAGE']})")
             return loop.run_until_complete(main_async(config))
             
         except ImportError:
@@ -4849,10 +4862,12 @@ def main(config=None):
         print(f"[{call_id}] FATAL ERROR in main function: {str(e)}")
         print(traceback.format_exc())
         
-        # Only reset initialization on fatal errors
+        # Reset initialization state on fatal error
         with _INITIALIZATION_LOCK:
-            _BOT_INITIALIZED = False
-            _INIT_TIMESTAMP = None
+            if _BOT_RUNNING:
+                _BOT_RUNNING = False
+            else:
+                _BOT_SETUP_COMPLETE = False
         
         return 1
 
