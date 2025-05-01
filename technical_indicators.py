@@ -1315,7 +1315,6 @@ class TechnicalIndicators:
                         valley2 = window.loc[between_indices_2]['Low'].min()
                         
                         if (valley1 < first_max * 0.95 and valley1 < second_max * 0.95 and
-                            valley2 < second_max * 0.95 and valley2 < third_max *                        if (valley1 < first_max * 0.95 and valley1 < second_max * 0.95 and
                             valley2 < second_max * 0.95 and valley2 < third_max * 0.95):
                             # Triple top confirmed
                             self.df.loc[self.df.index[i], 'triple_top'] = True
