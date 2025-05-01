@@ -4560,7 +4560,7 @@ def create_scheduler(config, logger):
 
 async def main_async(config):
     """
-    Main async function to run the Candlestick Pattern Bot
+    Main async function with improved error handling and timeouts
     
     Args:
         config: Configuration dictionary
@@ -4569,19 +4569,44 @@ async def main_async(config):
         0 for successful execution, 1 for errors
     """
     try:
-        # Initialize and test connections
-        logger, upstox_ok, telegram_ok = await initialize_and_test(config)
+        # Set up logging
+        logger = setup_logging(config)
         
-        # Get current user and time information
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        current_user = config.get('USERNAME', 'rahulreddyallu')
+        # Add current date/time and user to config
+        config['CURRENT_TIME'] = "2025-05-01 17:25:24"  # You provided this value
+        config['CURRENT_USER'] = "rahulreddyallu"  # You provided this value
         
         # Log startup information
         logger.info("=" * 70)
         logger.info(f"Quantitative Trading Bot v{config.get('VERSION', '3.5.1')} - Starting")
-        logger.info(f"Bot run by: {current_user} at {current_time} UTC")
+        logger.info(f"Bot run by: {config['CURRENT_USER']} at {config['CURRENT_TIME']} UTC")
         logger.info("=" * 70)
         logger.info(f"Configured to analyze {len(config.get('STOCK_LIST', []))} stocks with {config.get('HISTORICAL_DAYS', 100)} days of historical data")
+        
+        # Test connections (only done once)
+        logger.info("Testing Upstox API connection...")
+        upstox_ok = test_upstox_connection(config, logger)
+        
+        telegram_ok = False
+        if config.get('ENABLE_TELEGRAM_ALERTS', False):
+            logger.info("Testing Telegram API connection...")
+            try:
+                # Set a timeout for the Telegram test to prevent hanging
+                test_message = escape_telegram_markdown("🔍 Test Message - Candlestick Pattern Bot connection test")
+                telegram_task = asyncio.create_task(send_telegram_message(test_message, config, logger))
+                result = await asyncio.wait_for(telegram_task, timeout=10.0)
+                telegram_ok = result
+                if result:
+                    logger.info("✅ Successfully sent test message to Telegram")
+                else:
+                    logger.error("❌ Failed to send test message to Telegram")
+            except asyncio.TimeoutError:
+                logger.error("Telegram connection test timed out after 10 seconds")
+                telegram_ok = False
+            except Exception as e:
+                logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
+                logger.error(traceback.format_exc())
+                telegram_ok = False
         
         # Check connections
         if not upstox_ok:
@@ -4591,17 +4616,29 @@ async def main_async(config):
         if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
             logger.warning("Telegram connection failed - notifications will not be sent")
         
-        # Send startup notification if Telegram is enabled
+        # Send startup notification if Telegram is enabled (no additional testing)
         if config.get('ENABLE_TELEGRAM_ALERTS', False) and telegram_ok:
             logger.info("Sending startup notification...")
-            await send_startup_notification(config, logger)
+            try:
+                notification_task = asyncio.create_task(send_startup_notification(config, logger))
+                # Add timeout to prevent hanging
+                await asyncio.wait_for(notification_task, timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.error("Startup notification timed out after 10 seconds")
+            except Exception as e:
+                logger.error(f"Error sending startup notification: {str(e)}")
+                logger.error(traceback.format_exc())
         
         # Run initial analysis if configured
         if config.get('RUN_ON_STARTUP', True):
             logger.info("Running initial analysis on startup")
             try:
-                await run_trading_signals(config, logger)
+                analysis_task = asyncio.create_task(run_trading_signals(config, logger))
+                # Add timeout to prevent hanging
+                await asyncio.wait_for(analysis_task, timeout=60.0)
                 logger.info("Initial analysis completed successfully")
+            except asyncio.TimeoutError:
+                logger.error("Initial analysis timed out after 60 seconds")
             except Exception as e:
                 logger.error(f"Error in initial analysis: {str(e)}")
                 logger.error(traceback.format_exc())
@@ -4609,27 +4646,26 @@ async def main_async(config):
         # Start scheduler if configured
         if config.get('SCHEDULED_MODE', True):
             try:
-                logger.info("Initializing scheduler...")
+                logger.info("Creating scheduler...")
                 scheduler = create_scheduler(config, logger)
                 
                 logger.info("Starting scheduler...")
                 scheduler.start()
                 logger.info("Scheduler started successfully - waiting for scheduled events")
                 
-                # Keep the event loop running
+                # Keep the event loop running with periodic checks
                 try:
                     logger.info("Entering main event loop")
+                    counter = 0
                     while True:
-                        # Sleep for a shorter period and log periodically to show the bot is alive
-                        for _ in range(60):  # Log every hour (60 * 60 seconds)
-                            await asyncio.sleep(60)  # Sleep for 1 minute
-                        logger.debug("Bot is running normally - waiting for next scheduled event")
-                        
+                        # Sleep for a shorter period
+                        await asyncio.sleep(60)
+                        counter += 1
+                        if counter % 60 == 0:  # Log once per hour
+                            logger.info(f"Bot running normally - uptime: {counter} minutes")
                 except (KeyboardInterrupt, SystemExit):
                     logger.info("Bot stopped by user")
-                    logger.info("Shutting down scheduler...")
                     scheduler.shutdown()
-                    logger.info("Scheduler shutdown complete")
                     return 0
                 
             except Exception as e:
