@@ -3926,7 +3926,7 @@ class TradingParameters:
                             patterns_text.append(f"✅ {pattern_name} ({signal_type})")
                         
                         daily_report.append("\n".join(patterns_text))
-                    
+                        
                     # Get supporting indicators
                     supporting_indicators = trading_check['validation_details']['supporting_indicators']
                     if supporting_indicators:
