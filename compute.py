@@ -82,28 +82,55 @@ class EmptyDataError(DataFetchError):
 
 def setup_logging(config):
     """
-    Setup logging configuration
+    Setup logging configuration with deduplication protection
     
     Args:
-        config: Configuration dictionary with logging parameters
+        config: Configuration dictionary
         
     Returns:
-        Logger object
+        Logger instance
     """
-    # Create logs directory
-    os.makedirs(config.get('LOG_DIRECTORY', 'logs'), exist_ok=True)
-
+    log_dir = config.get('LOG_DIRECTORY', 'logs')
+    
+    # Create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
+    
     # Setup logging
-    log_filename = f"{config.get('LOG_DIRECTORY', 'logs')}/trading_bot_{datetime.datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    return logging.getLogger(__name__)
+    log_level = config.get('LOG_LEVEL', logging.INFO)
+    
+    # Get logger and clear any existing handlers
+    logger = logging.getLogger('compute')
+    
+    # Return existing logger if it's already set up
+    if logger.handlers:
+        return logger
+        
+    # Clear any existing handlers to prevent duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Create formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Setup file handler
+    log_file = os.path.join(log_dir, f'candlestick_bot_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    
+    # Setup console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    
+    # Setup logger
+    logger.setLevel(log_level)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    # Prevent log messages from being propagated to the root logger
+    logger.propagate = False
+    
+    return logger
+
 # ===============================================================
 # Parameter Configuration
 # ===============================================================
