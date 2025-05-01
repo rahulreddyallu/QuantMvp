@@ -1203,17 +1203,19 @@ class TradingParameters:
             # Compute summary
             buy_signals = [s for s in signals if s['signal'] == 'BUY']
             sell_signals = [s for s in signals if s['signal'] == 'SELL']
+            buy_count = len(buy_signals)  # Define buy_count here
+            sell_count = len(sell_signals)  # Define sell_count here
             
             # Determine overall signal
             overall_signal = 'NEUTRAL'
             overall_strength = 0
             
-            if len(buy_signals) > len(sell_signals):
+            if buy_count > sell_count:
                 overall_signal = 'BUY'
                 # Calculate strength based on buy signal strengths and margin over sell signals
                 overall_strength = min(5, max(1, round(sum(s['strength'] for s in buy_signals) / (buy_count + 1))))
                 
-            elif len(sell_signals) > len(buy_signals):
+            elif sell_count > buy_count:
                 overall_signal = 'SELL'
                 # Calculate strength based on sell signal strengths and margin over buy signals
                 overall_strength = min(5, max(1, round(sum(s['strength'] for s in sell_signals) / (sell_count + 1))))
@@ -1234,10 +1236,9 @@ class TradingParameters:
                 'overall_signal': overall_signal,
                 'overall_strength': overall_strength,
                 'individual_signals': signals,
-                'buy_signals_count': len(buy_signals),
-                'sell_signals_count': len(sell_signals)
+                'buy_signals_count': buy_count,
+                'sell_signals_count': sell_count
             }
-
 
     # ===============================================================
     # Technical Indicators Analysis
