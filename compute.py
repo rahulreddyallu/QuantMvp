@@ -17,6 +17,9 @@ import asyncio
 import pandas as pd
 import numpy as np
 import re
+import uuid
+import sys
+import threading
 from contextlib import asynccontextmanager
 from typing import Dict, List, Union, Tuple, Any, Optional
 from contextlib import asynccontextmanager
@@ -43,6 +46,10 @@ except ImportError:
 # ===============================================================
 # Custom Exceptions
 # ===============================================================
+# Add global lock and initialization flag
+
+_INITIALIZATION_LOCK = threading.Lock()
+_BOT_INITIALIZED = False
 
 class TradingBotError(Exception):
     """Base exception for all trading bot errors"""
@@ -4560,7 +4567,7 @@ def create_scheduler(config, logger):
 
 async def main_async(config):
     """
-    Main async function with improved error handling and timeouts
+    Main async function to run the Candlestick Pattern Bot
     
     Args:
         config: Configuration dictionary
@@ -4568,128 +4575,139 @@ async def main_async(config):
     Returns:
         0 for successful execution, 1 for errors
     """
+    global _BOT_INITIALIZED
+    
+    # Use threading lock to ensure only one instance initializes
+    with _INITIALIZATION_LOCK:
+        if _BOT_INITIALIZED:
+            print("WARNING: Bot already initialized, ignoring duplicate start request")
+            return 0
+        _BOT_INITIALIZED = True
+    
+    # Generate unique run ID for this execution
+    run_id = str(uuid.uuid4())[:8]
+    
     try:
         # Set up logging
         logger = setup_logging(config)
         
-        # Add current date/time and user to config
-        config['CURRENT_TIME'] = "2025-05-01 17:25:24"  # You provided this value
-        config['CURRENT_USER'] = "rahulreddyallu"  # You provided this value
+        # Update config with current information
+        config['RUN_ID'] = run_id
+        config['CURRENT_TIME'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        config['CURRENT_USER'] = config.get('USERNAME', 'rahulreddyallu')
         
-        # Log startup information
+        # Log startup with unique run ID
         logger.info("=" * 70)
-        logger.info(f"Quantitative Trading Bot v{config.get('VERSION', '3.5.1')} - Starting")
-        logger.info(f"Bot run by: {config['CURRENT_USER']} at {config['CURRENT_TIME']} UTC")
+        logger.info(f"[RUN:{run_id}] Quantitative Trading Bot v{config.get('VERSION', '3.5.1')} - Starting")
+        logger.info(f"[RUN:{run_id}] Bot run by: {config['CURRENT_USER']} at {config['CURRENT_TIME']} UTC")
         logger.info("=" * 70)
-        logger.info(f"Configured to analyze {len(config.get('STOCK_LIST', []))} stocks with {config.get('HISTORICAL_DAYS', 100)} days of historical data")
+        logger.info(f"[RUN:{run_id}] Configured to analyze {len(config.get('STOCK_LIST', []))} stocks with {config.get('HISTORICAL_DAYS', 100)} days of historical data")
         
-        # Test connections (only done once)
-        logger.info("Testing Upstox API connection...")
+        # Single test for Upstox connection
+        logger.info(f"[RUN:{run_id}] Testing Upstox API connection...")
         upstox_ok = test_upstox_connection(config, logger)
         
+        # Single test for Telegram connection
         telegram_ok = False
         if config.get('ENABLE_TELEGRAM_ALERTS', False):
-            logger.info("Testing Telegram API connection...")
+            logger.info(f"[RUN:{run_id}] Testing Telegram API connection...")
             try:
-                # Set a timeout for the Telegram test to prevent hanging
-                test_message = escape_telegram_markdown("🔍 Test Message - Candlestick Pattern Bot connection test")
+                # Set a timeout for the Telegram test
+                test_message = escape_telegram_markdown(f"🔍 Test Message - Bot {run_id} connection test")
                 telegram_task = asyncio.create_task(send_telegram_message(test_message, config, logger))
                 result = await asyncio.wait_for(telegram_task, timeout=10.0)
                 telegram_ok = result
                 if result:
-                    logger.info("✅ Successfully sent test message to Telegram")
+                    logger.info(f"[RUN:{run_id}] ✅ Successfully sent test message to Telegram")
                 else:
-                    logger.error("❌ Failed to send test message to Telegram")
+                    logger.error(f"[RUN:{run_id}] ❌ Failed to send test message to Telegram")
             except asyncio.TimeoutError:
-                logger.error("Telegram connection test timed out after 10 seconds")
+                logger.error(f"[RUN:{run_id}] Telegram connection test timed out after 10 seconds")
                 telegram_ok = False
             except Exception as e:
-                logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
+                logger.error(f"[RUN:{run_id}] ❌ Error connecting to Telegram API: {str(e)}")
                 logger.error(traceback.format_exc())
                 telegram_ok = False
         
         # Check connections
         if not upstox_ok:
-            logger.error("Cannot proceed without Upstox API connection")
+            logger.error(f"[RUN:{run_id}] Cannot proceed without Upstox API connection")
             return 1
         
         if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
-            logger.warning("Telegram connection failed - notifications will not be sent")
+            logger.warning(f"[RUN:{run_id}] Telegram connection failed - notifications will not be sent")
         
-        # Send startup notification if Telegram is enabled (no additional testing)
+        # Send startup notification if Telegram is enabled
         if config.get('ENABLE_TELEGRAM_ALERTS', False) and telegram_ok:
-            logger.info("Sending startup notification...")
+            logger.info(f"[RUN:{run_id}] Sending startup notification...")
             try:
                 notification_task = asyncio.create_task(send_startup_notification(config, logger))
-                # Add timeout to prevent hanging
                 await asyncio.wait_for(notification_task, timeout=10.0)
+                logger.info(f"[RUN:{run_id}] Startup notification sent successfully")
             except asyncio.TimeoutError:
-                logger.error("Startup notification timed out after 10 seconds")
+                logger.error(f"[RUN:{run_id}] Startup notification timed out after 10 seconds")
             except Exception as e:
-                logger.error(f"Error sending startup notification: {str(e)}")
+                logger.error(f"[RUN:{run_id}] Error sending startup notification: {str(e)}")
                 logger.error(traceback.format_exc())
         
         # Run initial analysis if configured
         if config.get('RUN_ON_STARTUP', True):
-            logger.info("Running initial analysis on startup")
+            logger.info(f"[RUN:{run_id}] Running initial analysis on startup")
             try:
                 analysis_task = asyncio.create_task(run_trading_signals(config, logger))
-                # Add timeout to prevent hanging
                 await asyncio.wait_for(analysis_task, timeout=60.0)
-                logger.info("Initial analysis completed successfully")
+                logger.info(f"[RUN:{run_id}] Initial analysis completed successfully")
             except asyncio.TimeoutError:
-                logger.error("Initial analysis timed out after 60 seconds")
+                logger.error(f"[RUN:{run_id}] Initial analysis timed out after 60 seconds")
             except Exception as e:
-                logger.error(f"Error in initial analysis: {str(e)}")
+                logger.error(f"[RUN:{run_id}] Error in initial analysis: {str(e)}")
                 logger.error(traceback.format_exc())
         
         # Start scheduler if configured
         if config.get('SCHEDULED_MODE', True):
             try:
-                logger.info("Creating scheduler...")
+                logger.info(f"[RUN:{run_id}] Creating scheduler...")
                 scheduler = create_scheduler(config, logger)
                 
-                logger.info("Starting scheduler...")
+                logger.info(f"[RUN:{run_id}] Starting scheduler...")
                 scheduler.start()
-                logger.info("Scheduler started successfully - waiting for scheduled events")
+                logger.info(f"[RUN:{run_id}] Scheduler started successfully - waiting for scheduled events")
                 
-                # Keep the event loop running with periodic checks
+                # Keep the event loop running
                 try:
-                    logger.info("Entering main event loop")
+                    logger.info(f"[RUN:{run_id}] Entering main event loop")
                     counter = 0
                     while True:
-                        # Sleep for a shorter period
                         await asyncio.sleep(60)
                         counter += 1
                         if counter % 60 == 0:  # Log once per hour
-                            logger.info(f"Bot running normally - uptime: {counter} minutes")
+                            logger.info(f"[RUN:{run_id}] Bot running normally - uptime: {counter} minutes")
                 except (KeyboardInterrupt, SystemExit):
-                    logger.info("Bot stopped by user")
+                    logger.info(f"[RUN:{run_id}] Bot stopped by user")
                     scheduler.shutdown()
                     return 0
-                
             except Exception as e:
-                logger.error(f"Unexpected error in scheduler: {str(e)}")
+                logger.error(f"[RUN:{run_id}] Unexpected error in scheduler: {str(e)}")
                 logger.error(traceback.format_exc())
                 return 1
         else:
-            logger.info("Scheduled mode disabled - exiting after initial analysis")
+            logger.info(f"[RUN:{run_id}] Scheduled mode disabled - exiting after initial analysis")
         
-        logger.info("Bot completed execution successfully")
+        logger.info(f"[RUN:{run_id}] Bot completed execution successfully")
         return 0
         
     except Exception as e:
         # Handle any uncaught exceptions
         try:
-            logger.error(f"Unhandled exception in main_async: {str(e)}")
+            logger.error(f"[RUN:{run_id}] Unhandled exception in main_async: {str(e)}")
             logger.error(traceback.format_exc())
         except NameError:
             # If logger isn't defined yet, use basic logging
-            logging.error(f"Fatal error before logger initialization: {str(e)}")
-            logging.error(traceback.format_exc())
+            print(f"FATAL ERROR: {str(e)}")
+            print(traceback.format_exc())
         return 1
 
-def main(config):
+def main(config=None):
     """
     Main function to run the Candlestick Pattern Bot
     
@@ -4699,6 +4717,12 @@ def main(config):
     Returns:
         0 for successful execution, 1 for errors
     """
+    global _BOT_INITIALIZED
+    
+    # Print diagnostic info
+    print(f"Starting main function with default config: {config is None}")
+    print(f"Current initialization state: {_BOT_INITIALIZED}")
+    
     try:
         # Set up default configuration if not provided
         if config is None:
@@ -4721,28 +4745,45 @@ def main(config):
                 'STOCK_INFO': {}
             }
         
-        # Safely run the async main function using the appropriate approach
-        # based on whether there's already an event loop running
+        # Initialize library logging
+        logging.basicConfig(level=logging.INFO, 
+                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Determine the best way to run the async code
         try:
-            # Check if we're already in an event loop
+            # If we're in IPython or a Jupyter notebook
+            import nest_asyncio
+            nest_asyncio.apply()
+            print("Applied nest_asyncio patch for Jupyter/IPython environment")
+            
+            # Get the event loop
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If already in a running loop, create a future and run with ensure_future
-                asyncio.ensure_future(main_async(config))
+            
+            # Check if already initialized
+            if _BOT_INITIALIZED:
+                print("Bot already initialized, ignoring duplicate start request")
                 return 0
-            else:
-                # If loop exists but not running, use run_until_complete
-                return loop.run_until_complete(main_async(config))
-        except RuntimeError:
-            # If no loop exists, create a new one with asyncio.run()
+                
+            # Run the async main function
+            print("Running main_async function")
+            return loop.run_until_complete(main_async(config))
+            
+        except ImportError:
+            # Standard Python environment
+            print("Standard Python environment detected")
+            
+            # Check if already initialized
+            if _BOT_INITIALIZED:
+                print("Bot already initialized, ignoring duplicate start request")
+                return 0
+                
+            # Run the async main function
+            print("Running main_async function with asyncio.run()")
             return asyncio.run(main_async(config))
             
     except Exception as e:
-        # Set up simple console logging if logger isn't initialized yet
-        logging.basicConfig(level=logging.ERROR)
-        logger = logging.getLogger("emergency_logger")
-        logger.error(f"Fatal error: {str(e)}")
-        logger.error(traceback.format_exc())
+        print(f"Fatal error in main function: {str(e)}")
+        print(traceback.format_exc())
         return 1
 
 if __name__ == "__main__":
