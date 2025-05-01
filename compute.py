@@ -4456,72 +4456,71 @@ Please check the logs for more details.
 
 def create_scheduler(config, logger):
     """
-    Create an APScheduler instance for more robust scheduling
+    Create an APScheduler instance for scheduled analysis
     
     Args:
         config: Configuration dictionary with scheduling parameters
         logger: Logger instance
         
     Returns:
-        Configured APScheduler instance
+        Configured APScheduler instance or None if error
     """
     try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
-    except ImportError:
-        logger.critical("Required dependency 'apscheduler' not found. Please install it using: pip install apscheduler")
-        logger.critical("Exiting application due to missing dependencies")
-        sys.exit(1)
-    
-    # Create scheduler
-    scheduler = AsyncIOScheduler()
-    logger.info("Created AsyncIOScheduler for job scheduling")
-    
-    # Get scheduling configuration
-    market_open_hour = config.get('MARKET_OPEN_HOUR', 9)
-    market_close_hour = config.get('MARKET_CLOSE_HOUR', 15)
-    market_days = config.get('MARKET_DAYS', ['mon', 'tue', 'wed', 'thu', 'fri'])
-    frequency = config.get('ANALYSIS_FREQUENCY', 1)  # hours
-    
-    # Create comma-separated string of days
-    days_str = ','.join(market_days)
-    
-    # Define async wrapper for job execution
-    async def run_analysis_job():
+        # Import APScheduler components
         try:
-            logger.info("Executing scheduled analysis job")
-            return await run_trading_signals(config, logger)
-        except Exception as e:
-            logger.error(f"Error in scheduled analysis job: {e}")
-            logger.error(traceback.format_exc())
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+        except ImportError:
+            logger.critical("Required dependency 'apscheduler' not found. Please install it using: pip install apscheduler")
+            logger.critical("Exiting application due to missing dependencies")
             return None
-    
-    # Add job listener for logging
-    def job_listener(event):
-        if event.exception:
-            logger.error(f"Job failed: {event.exception}")
-        else:
-            logger.info(f"Job executed successfully: {event.retval}")
-    
+        
+        # Create scheduler
+        scheduler = AsyncIOScheduler()
+        logger.info("Created AsyncIOScheduler for job scheduling")
+        
+        # Define async wrapper for job execution
+        async def scheduled_analysis_job():
+            logger.info("Running scheduled trading signals analysis")
+            await run_trading_signals(config, logger)
+        
+        # Schedule for specific hours of the day based on market hours
+        market_open_hour = config.get('MARKET_OPEN_HOUR', 9)
+        market_close_hour = config.get('MARKET_CLOSE_HOUR', 15)
+        market_days = config.get('MARKET_DAYS', ['mon', 'tue', 'wed', 'thu', 'fri'])
+        frequency = config.get('ANALYSIS_FREQUENCY', 1)  # hours
+        
+        # Create comma-separated string of days
+        days_str = ','.join(market_days)
+        
+        # Add job listener for logging
+        def job_listener(event):
+            if event.exception:
+                logger.error(f"Job failed: {event.exception}")
+            else:
+                logger.info(f"Job executed successfully")
+        
         scheduler.add_listener(job_listener, EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
         
         # Schedule by intervals during market hours
+        hours_added = 0
         for hour in range(market_open_hour, market_close_hour + 1, frequency):
             job_id = f"analysis_job_{hour}"
             scheduler.add_job(
-                run_analysis_job,
+                scheduled_analysis_job,
                 CronTrigger(hour=hour, minute=0, day_of_week=days_str),
                 id=job_id,
                 replace_existing=True,
                 name=f"Analysis Job at {hour}:00"
             )
             logger.info(f"Scheduled analysis job at {hour}:00 on {days_str}")
+            hours_added += 1
         
         # Also schedule at market open and close for important signals
         if config.get('RUN_AT_MARKET_OPEN', True):
             scheduler.add_job(
-                run_analysis_job,
+                scheduled_analysis_job,
                 CronTrigger(hour=market_open_hour, minute=15, day_of_week=days_str),
                 id="market_open_job",
                 replace_existing=True,
@@ -4531,7 +4530,7 @@ def create_scheduler(config, logger):
         
         if config.get('RUN_AT_MARKET_CLOSE', True):
             scheduler.add_job(
-                run_analysis_job,
+                scheduled_analysis_job,
                 CronTrigger(hour=market_close_hour, minute=30, day_of_week=days_str),
                 id="market_close_job",
                 replace_existing=True,
@@ -4539,7 +4538,17 @@ def create_scheduler(config, logger):
             )
             logger.info(f"Scheduled market close analysis at {market_close_hour}:30 on {days_str}")
         
+        # Verify that at least one job has been scheduled before returning
+        if len(scheduler.get_jobs()) == 0:
+            logger.error("No jobs were scheduled. Check market hours and frequency settings.")
+            return None
+            
         return scheduler
+        
+    except Exception as e:
+        logger.error(f"Error creating scheduler: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
 
 
     # ===============================================================
@@ -4663,12 +4672,16 @@ async def main_async(config):
                 logger.error(f"[RUN:{run_id}] Error in initial analysis: {str(e)}")
                 logger.error(traceback.format_exc())
         
-        # Start scheduler if configured
-        if config.get('SCHEDULED_MODE', True):
-            try:
-                logger.info(f"[RUN:{run_id}] Creating scheduler...")
-                scheduler = create_scheduler(config, logger)
-                
+       # Update the scheduler section in main_async
+    # Start scheduler if configured
+    if config.get('SCHEDULED_MODE', True):
+        try:
+            logger.info(f"[RUN:{run_id}] Creating scheduler...")
+            scheduler = create_scheduler(config, logger)
+            
+            if scheduler is None:
+                logger.error(f"[RUN:{run_id}] Failed to create scheduler - exiting scheduled mode")
+            else:
                 logger.info(f"[RUN:{run_id}] Starting scheduler...")
                 scheduler.start()
                 logger.info(f"[RUN:{run_id}] Scheduler started successfully - waiting for scheduled events")
@@ -4686,12 +4699,12 @@ async def main_async(config):
                     logger.info(f"[RUN:{run_id}] Bot stopped by user")
                     scheduler.shutdown()
                     return 0
-            except Exception as e:
-                logger.error(f"[RUN:{run_id}] Unexpected error in scheduler: {str(e)}")
-                logger.error(traceback.format_exc())
-                return 1
-        else:
-            logger.info(f"[RUN:{run_id}] Scheduled mode disabled - exiting after initial analysis")
+        except Exception as e:
+            logger.error(f"[RUN:{run_id}] Unexpected error in scheduler: {str(e)}")
+            logger.error(traceback.format_exc())
+            return 1
+    else:
+        logger.info(f"[RUN:{run_id}] Scheduled mode disabled - exiting after initial analysis")
         
         logger.info(f"[RUN:{run_id}] Bot completed execution successfully")
         return 0
