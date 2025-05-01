@@ -95,25 +95,27 @@ def setup_logging(config):
     # Create log directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
     
-    # Setup logging
-    log_level = config.get('LOG_LEVEL', logging.INFO)
+    # Set up root logger first
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        # Configure root logger only if not already configured
+        logging.basicConfig(level=logging.WARNING,
+                          format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # Get logger and clear any existing handlers
+    # Get our specific logger
     logger = logging.getLogger('compute')
     
     # Return existing logger if it's already set up
     if logger.handlers:
-        return logger
-        
-    # Clear any existing handlers to prevent duplicates
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+        # Clear existing handlers to avoid duplication
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
     
-    # Create formatter
+    # Configure formatter
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Setup file handler
-    log_file = os.path.join(log_dir, f'candlestick_bot_{datetime.datetime.now().strftime("%Y%m%d")}.log')
+    log_file = os.path.join(log_dir, f'trading_bot_{datetime.datetime.now().strftime("%Y%m%d")}.log')
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     
@@ -122,15 +124,14 @@ def setup_logging(config):
     console_handler.setFormatter(formatter)
     
     # Setup logger
-    logger.setLevel(log_level)
+    logger.setLevel(config.get('LOG_LEVEL', logging.INFO))
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    # Prevent log messages from being propagated to the root logger
+    # Prevent log propagation to avoid duplicate messages
     logger.propagate = False
     
     return logger
-
 # ===============================================================
 # Parameter Configuration
 # ===============================================================
