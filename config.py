@@ -18,12 +18,16 @@ LOG_DIRECTORY = 'logs'
 LOG_LEVEL = 'INFO'
 
 # API credentials
-UPSTOX_ACCESS_TOKEN = ''  # TODO: Insert your Upstox access token here
+# Upstox API Credentials
+UPSTOX_API_KEY = "ad55de1b-c7d1-4adc-b559-3830bf1efd72"
+UPSTOX_API_SECRET = "969nyjgapm"
+UPSTOX_REDIRECT_URI = "https://localhost"
+UPSTOX_ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0TEFGUDkiLCJqdGkiOiI2ODEzOWU2N2NiOWRhMDZiZGU2MDFiNzAiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc0NjExNjE5OSwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzQ2MTM2ODAwfQ.LwX5Qi_mWBq8nNvCfSGm8tGM_Fv49gK78ej_fAzswYU"
 
 # Telegram notification settings
 ENABLE_TELEGRAM_ALERTS = True
-TELEGRAM_BOT_TOKEN = ''  # TODO: Insert your Telegram bot token here
-TELEGRAM_CHAT_ID = ''    # TODO: Insert your Telegram chat ID here
+TELEGRAM_BOT_TOKEN = "7209852741:AAEf-_f6TeZK1-_R55yq365iU_54rk95y-c"
+TELEGRAM_CHAT_ID = "936205208"
 ENABLE_DAILY_REPORT = True
 
 # Market configuration
