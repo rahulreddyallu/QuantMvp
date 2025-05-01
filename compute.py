@@ -272,6 +272,29 @@ class TradingParameters:
     # ===============================================================
     # Utility Functions
     # ===============================================================
+    # ===============================================================
+# Helper Functions
+# ===============================================================
+
+    def escape_telegram_markdown(text):
+        """
+        Escape special characters for Telegram MarkdownV2 format
+        
+        Args:
+            text: Text to escape
+            
+        Returns:
+            Escaped text safe for Telegram MarkdownV2
+        """
+        # Characters that need to be escaped in MarkdownV2
+        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        
+        # Escape each character with a backslash
+        for char in escape_chars:
+            text = text.replace(char, '\\' + char)
+        
+        return text
+
 
     def get_stock_info_by_key(instrument_key, stock_info_dict):
         """
@@ -4321,63 +4344,63 @@ Bot is now actively monitoring for trading signals.
         
         return logger, upstox_ok, telegram_ok
 
-    async def main_async(config):
-        """
-        Main async function to run the Candlestick Pattern Bot
+async def main_async(config):
+    """
+    Main async function to run the Candlestick Pattern Bot
+    
+    Args:
+        config: Configuration dictionary
         
-        Args:
-            config: Configuration dictionary
+    Returns:
+        0 for successful execution, 1 for errors
+    """
+    # Initialize and test connections
+    logger, upstox_ok, telegram_ok = await initialize_and_test(config)
+    
+    logger.info("=" * 70)
+    logger.info(f"Candlestick Pattern Detection Bot - Starting Up (v{config.get('VERSION', '3.5.1')})")
+    logger.info("Advanced Pattern Recognition with Technical Indicator Validation")
+    logger.info("=" * 70)
+    
+    if not upstox_ok:
+        logger.error("Cannot proceed without Upstox API connection")
+        return 1
+    
+    if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
+        logger.warning("Telegram connection failed, proceeding without notifications")
+    
+    # Send startup notification
+    if config.get('ENABLE_TELEGRAM_ALERTS', False):
+        await send_startup_notification(config, logger)
+    
+    # Run immediately on startup if configured
+    if config.get('RUN_ON_STARTUP', True):
+        logger.info("Running initial analysis on startup")
+        await run_trading_signals(config, logger)
+    
+    # If running in scheduled mode, start the scheduler
+    if config.get('SCHEDULED_MODE', True):
+        try:
+            scheduler = create_scheduler(config, logger)
+            scheduler.start()
+            logger.info("Scheduler started - waiting for scheduled events")
             
-        Returns:
-            0 for successful execution, 1 for errors
-        """
-        # Initialize and test connections
-        logger, upstox_ok, telegram_ok = await initialize_and_test(config)
-        
-        logger.info("=" * 70)
-        logger.info(f"Candlestick Pattern Detection Bot - Starting Up (v{config.get('VERSION', '3.5.1')})")
-        logger.info("Advanced Pattern Recognition with Technical Indicator Validation")
-        logger.info("=" * 70)
-        
-        if not upstox_ok:
-            logger.error("Cannot proceed without Upstox API connection")
-            return 1
-        
-        if not telegram_ok and config.get('ENABLE_TELEGRAM_ALERTS', False):
-            logger.warning("Telegram connection failed, proceeding without notifications")
-        
-        # Send startup notification
-        if config.get('ENABLE_TELEGRAM_ALERTS', False):
-            await send_startup_notification(config, logger)
-        
-        # Run immediately on startup if configured
-        if config.get('RUN_ON_STARTUP', True):
-            logger.info("Running initial analysis on startup")
-            await run_trading_signals(config, logger)
-        
-        # If running in scheduled mode, start the scheduler
-        if config.get('SCHEDULED_MODE', True):
+            # Keep the event loop running
             try:
-                scheduler = create_scheduler(config, logger)
-                scheduler.start()
-                logger.info("Scheduler started - waiting for scheduled events")
-                
-                # Keep the event loop running
-                try:
-                    # Wait forever until interrupted
-                    while True:
-                        await asyncio.sleep(3600)  # Sleep for 1 hour and check again
-                except (KeyboardInterrupt, SystemExit):
-                    logger.info("Bot stopped by user")
-                    scheduler.shutdown()
-                    return 0
-                
-            except Exception as e:
-                logger.error(f"Unexpected error in scheduler: {str(e)}")
-                logger.error(traceback.format_exc())
-                return 1
-        
-        return 0
+                # Wait forever until interrupted
+                while True:
+                    await asyncio.sleep(3600)  # Sleep for 1 hour and check again
+            except (KeyboardInterrupt, SystemExit):
+                logger.info("Bot stopped by user")
+                scheduler.shutdown()
+                return 0
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in scheduler: {str(e)}")
+            logger.error(traceback.format_exc())
+            return 1
+    
+    return 0
 
 def main(config):
     """
