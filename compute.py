@@ -51,6 +51,7 @@ except ImportError:
 _INITIALIZATION_LOCK = threading.Lock()
 _BOT_INITIALIZED = False
 _LOGGING_INITIALIZED = False
+_BOT_INSTANCE_UUID = str(uuid.uuid4())
 
 class TradingBotError(Exception):
     """Base exception for all trading bot errors"""
@@ -83,7 +84,7 @@ class EmptyDataError(DataFetchError):
 
 def setup_logging(config):
     """
-    Set up logging with complete protection against duplicated log entries
+    Setup logging with unique logger per instance to prevent duplicate messages
     
     Args:
         config: Configuration dictionary
@@ -91,57 +92,49 @@ def setup_logging(config):
     Returns:
         Logger instance
     """
-    global _LOGGING_INITIALIZED
+    # Use the instance UUID to create a unique logger name
+    instance_id = config.get('INSTANCE_UUID', str(uuid.uuid4()))[:8]
+    logger_name = f'compute_{instance_id}'
     
     # Get the logger
-    logger = logging.getLogger('compute')
+    logger = logging.getLogger(logger_name)
     
-    # If logging is already initialized, just return the logger
-    if _LOGGING_INITIALIZED:
+    # If the logger already has handlers, it's already configured
+    if logger.handlers:
         return logger
-    
-    # Set the flag to prevent re-initialization
-    _LOGGING_INITIALIZED = True
     
     # Get log directory
     log_dir = config.get('LOG_DIRECTORY', 'logs')
     os.makedirs(log_dir, exist_ok=True)
     
-    # Get run ID and create a unique log file
-    run_id = config.get('RUN_ID', str(uuid.uuid4())[:8])
-    log_file = os.path.join(log_dir, f'trading_bot_{datetime.datetime.now().strftime("%Y%m%d")}_{run_id}.log')
+    # Create a unique log file
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f'trading_bot_{timestamp}_{instance_id}.log')
     
-    # ----- Reset ALL logging -----
-    
-    # 1. Remove all handlers from the root logger
-    root = logging.getLogger()
-    for handler in root.handlers[:]:
-        root.removeHandler(handler)
-    
-    # 2. Remove all handlers from our logger
+    # Remove any existing handlers to be safe
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
-    # 3. Disable propagation to prevent duplicate messages
+    # Disable propagation to the root logger
     logger.propagate = False
     
-    # 4. Create a new formatter
+    # Create formatter
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # 5. Create and add new handlers
+    # Create handlers
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     
-    # 6. Set level and add handlers
+    # Set level and add handlers
     logger.setLevel(config.get('LOG_LEVEL', logging.INFO))
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    # Log that we've initialized
-    logger.info(f"Logging initialized successfully with unique run ID: {run_id}")
+    # Log initialization
+    logger.info(f"Logging initialized for instance {instance_id}")
     
     return logger
 # ===============================================================
@@ -4761,7 +4754,7 @@ async def main_async(config):
 
 def main(config=None):
     """
-    Main function to run the Candlestick Pattern Bot
+    Main function to run the Candlestick Pattern Bot with robust initialization control
     
     Args:
         config: Configuration dictionary
@@ -4769,11 +4762,24 @@ def main(config=None):
     Returns:
         0 for successful execution, 1 for errors
     """
-    global _BOT_INITIALIZED
+    global _BOT_INITIALIZED, _BOT_INSTANCE_UUID
     
     # Print diagnostic info
+    print(f"=== BOT STARTUP REQUEST ===")
+    print(f"Instance UUID: {_BOT_INSTANCE_UUID[:8]}")
     print(f"Starting main function with default config: {config is None}")
     print(f"Current initialization state: {_BOT_INITIALIZED}")
+    
+    # Use a lock to ensure thread-safe initialization check
+    with _INITIALIZATION_LOCK:
+        if _BOT_INITIALIZED:
+            print("Bot already initialized, ignoring duplicate start request")
+            print("Restart the kernel/runtime to start a new bot instance")
+            return 0
+        
+        # Set the initialization flag inside the lock
+        _BOT_INITIALIZED = True
+        print("Bot initialization lock acquired")
     
     try:
         # Set up default configuration if not provided
@@ -4797,8 +4803,13 @@ def main(config=None):
                 'STOCK_INFO': {}
             }
         
-        # Initialize library logging
-        logging.basicConfig(level=logging.INFO, 
+        # Add instance and time information to config
+        config['INSTANCE_UUID'] = _BOT_INSTANCE_UUID
+        config['STARTUP_TIME'] = "2025-05-01 17:52:28"  # Use the time you provided
+        config['CURRENT_USER'] = "rahulreddyallu"  # Use the user you provided
+        
+        # Initialize library logging with minimal settings
+        logging.basicConfig(level=logging.WARNING, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         
         # Determine the best way to run the async code
@@ -4811,31 +4822,26 @@ def main(config=None):
             # Get the event loop
             loop = asyncio.get_event_loop()
             
-            # Check if already initialized
-            if _BOT_INITIALIZED:
-                print("Bot already initialized, ignoring duplicate start request")
-                return 0
-                
             # Run the async main function
-            print("Running main_async function")
+            print(f"Running main_async function for instance {_BOT_INSTANCE_UUID[:8]}")
             return loop.run_until_complete(main_async(config))
             
         except ImportError:
             # Standard Python environment
             print("Standard Python environment detected")
             
-            # Check if already initialized
-            if _BOT_INITIALIZED:
-                print("Bot already initialized, ignoring duplicate start request")
-                return 0
-                
             # Run the async main function
-            print("Running main_async function with asyncio.run()")
+            print(f"Running main_async function with asyncio.run()")
             return asyncio.run(main_async(config))
             
     except Exception as e:
         print(f"Fatal error in main function: {str(e)}")
         print(traceback.format_exc())
+        
+        # Reset initialization flag on error to allow retry
+        with _INITIALIZATION_LOCK:
+            _BOT_INITIALIZED = False
+        
         return 1
 
 if __name__ == "__main__":
