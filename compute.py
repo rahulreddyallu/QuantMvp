@@ -2569,68 +2569,77 @@ class TechnicalIndicators:
             self.calculate_atr()
         
         # Calculate basic upper and lower bands
-        self.df['basic_upper'] = ((self.df['High'] + self.df['Low']) / 2) + (multiplier * self.df['atr'])
-        self.df['basic_lower'] = ((self.df['High'] + self.df['Low']) / 2) - (multiplier * self.df['atr'])
+        basic_upper = ((self.df['High'] + self.df['Low']) / 2) + (multiplier * self.df['atr'])
+        basic_lower = ((self.df['High'] + self.df['Low']) / 2) - (multiplier * self.df['atr'])
         
         # Initialize SuperTrend columns
-        self.df['supertrend'] = 0.0
-        self.df['supertrend_direction'] = True  # True for uptrend, False for downtrend
+        supertrend = np.zeros(len(self.df))
+        supertrend_direction = np.ones(len(self.df), dtype=bool)  # True for uptrend, False for downtrend
         
         # This is one algorithm that's difficult to fully vectorize
         # We'll use an optimized loop but retain the structure for correctness
         if len(self.df) > period:
             # Set initial values for the first valid day
-            self.df.loc[self.df.index[period], 'supertrend'] = self.df.loc[self.df.index[period], 'basic_lower']
-            self.df.loc[self.df.index[period], 'supertrend_direction'] = True
+            supertrend[period] = basic_lower.iloc[period]
+            supertrend_direction[period] = True
             
             # Calculate iteratively for the rest of the days
             for i in range(period+1, len(self.df)):
-                curr = self.df.iloc[i]
-                prev = self.df.iloc[i-1]
+                curr_close = self.df['Close'].iloc[i]
+                curr_upper = basic_upper.iloc[i]
+                curr_lower = basic_lower.iloc[i]
+                prev_supertrend = supertrend[i-1]
                 
-                # Algorithm remains the same but using direct DataFrame access
-                if prev['supertrend'] == prev['basic_upper']:
-                    curr_upper = min(curr['basic_upper'], prev['supertrend'])
-                else:
-                    curr_upper = curr['basic_upper']
-                    
-                if prev['supertrend'] == prev['basic_lower']:
-                    curr_lower = max(curr['basic_lower'], prev['supertrend'])
-                else:
-                    curr_lower = curr['basic_lower']
+                # Algorithm remains the same but using direct array access
+                if prev_supertrend == basic_upper.iloc[i-1]:
+                    curr_upper = min(curr_upper, prev_supertrend)
+                
+                if prev_supertrend == basic_lower.iloc[i-1]:
+                    curr_lower = max(curr_lower, prev_supertrend)
                 
                 # Determine SuperTrend direction
-                if prev['supertrend'] == prev['basic_upper'] and curr['Close'] <= curr_upper:
+                if prev_supertrend == basic_upper.iloc[i-1] and curr_close <= curr_upper:
                     # Continue downtrend
-                    self.df.loc[self.df.index[i], 'supertrend'] = curr_upper
-                    self.df.loc[self.df.index[i], 'supertrend_direction'] = False
-                elif prev['supertrend'] == prev['basic_upper'] and curr['Close'] > curr_upper:
+                    supertrend[i] = curr_upper
+                    supertrend_direction[i] = False
+                elif prev_supertrend == basic_upper.iloc[i-1] and curr_close > curr_upper:
                     # Change to uptrend
-                    self.df.loc[self.df.index[i], 'supertrend'] = curr_lower
-                    self.df.loc[self.df.index[i], 'supertrend_direction'] = True
-                elif prev['supertrend'] == prev['basic_lower'] and curr['Close'] >= curr_lower:
+                    supertrend[i] = curr_lower
+                    supertrend_direction[i] = True
+                elif prev_supertrend == basic_lower.iloc[i-1] and curr_close >= curr_lower:
                     # Continue uptrend
-                    self.df.loc[self.df.index[i], 'supertrend'] = curr_lower
-                    self.df.loc[self.df.index[i], 'supertrend_direction'] = True
-                elif prev['supertrend'] == prev['basic_lower'] and curr['Close'] < curr_lower:
+                    supertrend[i] = curr_lower
+                    supertrend_direction[i] = True
+                elif prev_supertrend == basic_lower.iloc[i-1] and curr_close < curr_lower:
                     # Change to downtrend
-                    self.df.loc[self.df.index[i], 'supertrend'] = curr_upper
-                    self.df.loc[self.df.index[i], 'supertrend_direction'] = False
+                    supertrend[i] = curr_upper
+                    supertrend_direction[i] = False
         
-        # Create buy/sell signals (vectorized)
+        # Create buy/sell signals 
         if len(self.df) > 1:  # Need at least 2 rows to calculate signals
-            self.df['supertrend_buy'] = (
-                (self.df['supertrend_direction'] == True) & 
-                (self.df['supertrend_direction'].shift(1) == False)
-            )
+            supertrend_buy = np.zeros(len(self.df), dtype=bool)
+            supertrend_sell = np.zeros(len(self.df), dtype=bool)
             
-            self.df['supertrend_sell'] = (
-                (self.df['supertrend_direction'] == False) & 
-                (self.df['supertrend_direction'].shift(1) == True)
-            )
+            # Calculate signals
+            for i in range(1, len(self.df)):
+                supertrend_buy[i] = (supertrend_direction[i] == True) and (supertrend_direction[i-1] == False)
+                supertrend_sell[i] = (supertrend_direction[i] == False) and (supertrend_direction[i-1] == True)
         else:
-            self.df['supertrend_buy'] = False
-            self.df['supertrend_sell'] = False
+            supertrend_buy = np.zeros(len(self.df), dtype=bool)
+            supertrend_sell = np.zeros(len(self.df), dtype=bool)
+        
+        # Create new columns dictionary
+        new_columns = {
+            'basic_upper': basic_upper,
+            'basic_lower': basic_lower,
+            'supertrend': pd.Series(supertrend, index=self.df.index),
+            'supertrend_direction': pd.Series(supertrend_direction, index=self.df.index),
+            'supertrend_buy': pd.Series(supertrend_buy, index=self.df.index),
+            'supertrend_sell': pd.Series(supertrend_sell, index=self.df.index)
+        }
+        
+        # Add all columns at once
+        self.df = pd.concat([self.df, pd.DataFrame(new_columns, index=self.df.index)], axis=1)
         
         return self.df['supertrend']
     
@@ -2651,48 +2660,63 @@ class TechnicalIndicators:
         lips = 5
         
         # Calculate the median price
-        self.df['median_price'] = (self.df['High'] + self.df['Low']) / 2
+        median_price = (self.df['High'] + self.df['Low']) / 2
         
         # Calculate the three lines
-        self.df['alligator_jaw'] = self.df['median_price'].rolling(window=jaw).mean().shift(8)
-        self.df['alligator_teeth'] = self.df['median_price'].rolling(window=teeth).mean().shift(5)
-        self.df['alligator_lips'] = self.df['median_price'].rolling(window=lips).mean().shift(3)
+        jaw_line = median_price.rolling(window=jaw).mean().shift(8)
+        teeth_line = median_price.rolling(window=teeth).mean().shift(5)
+        lips_line = median_price.rolling(window=lips).mean().shift(3)
         
         # Determine if Alligator is sleeping (lines are intertwined)
-        max_line = self.df[['alligator_jaw', 'alligator_teeth', 'alligator_lips']].max(axis=1)
-        min_line = self.df[['alligator_jaw', 'alligator_teeth', 'alligator_lips']].min(axis=1)
+        max_line = pd.concat([jaw_line, teeth_line, lips_line], axis=1).max(axis=1)
+        min_line = pd.concat([jaw_line, teeth_line, lips_line], axis=1).min(axis=1)
         
         # If the difference between max and min is small, Alligator is sleeping
-        self.df['alligator_sleeping'] = (max_line - min_line) < (self.df['Close'] * 0.01)  # 1% of price
+        alligator_sleeping = (max_line - min_line) < (self.df['Close'] * 0.01)  # 1% of price
         
         # Determine buy/sell signal (vectorized)
-        self.df['alligator_buy'] = (
-            ~self.df['alligator_sleeping'] &
-            (self.df['Close'] > self.df['alligator_lips']) &
-            (self.df['alligator_lips'] > self.df['alligator_teeth']) &
-            (self.df['alligator_teeth'] > self.df['alligator_jaw'])
+        alligator_buy = (
+            ~alligator_sleeping &
+            (self.df['Close'] > lips_line) &
+            (lips_line > teeth_line) &
+            (teeth_line > jaw_line)
         )
         
-        self.df['alligator_sell'] = (
-            ~self.df['alligator_sleeping'] &
-            (self.df['Close'] < self.df['alligator_lips']) &
-            (self.df['alligator_lips'] < self.df['alligator_teeth']) &
-            (self.df['alligator_teeth'] < self.df['alligator_jaw'])
+        alligator_sell = (
+            ~alligator_sleeping &
+            (self.df['Close'] < lips_line) &
+            (lips_line < teeth_line) &
+            (teeth_line < jaw_line)
         )
         
         # Define the feeding phase
-        self.df['alligator_feeding'] = (
-            ~self.df['alligator_sleeping'] &
+        alligator_feeding = (
+            ~alligator_sleeping &
             (
-                (self.df['alligator_buy'] & (self.df['Close'] > self.df['Close'].shift(1))) |
-                (self.df['alligator_sell'] & (self.df['Close'] < self.df['Close'].shift(1)))
+                (alligator_buy & (self.df['Close'] > self.df['Close'].shift(1))) |
+                (alligator_sell & (self.df['Close'] < self.df['Close'].shift(1)))
             )
         )
         
+        # Create new columns dictionary
+        new_columns = {
+            'median_price': median_price,
+            'alligator_jaw': jaw_line,
+            'alligator_teeth': teeth_line,
+            'alligator_lips': lips_line,
+            'alligator_sleeping': alligator_sleeping,
+            'alligator_buy': alligator_buy,
+            'alligator_sell': alligator_sell,
+            'alligator_feeding': alligator_feeding
+        }
+        
+        # Add all columns at once
+        self.df = pd.concat([self.df, pd.DataFrame(new_columns, index=self.df.index)], axis=1)
+        
         return {
-            'jaw': self.df['alligator_jaw'],
-            'teeth': self.df['alligator_teeth'],
-            'lips': self.df['alligator_lips']
+            'jaw': jaw_line,
+            'teeth': teeth_line,
+            'lips': lips_line
         }
     
     #
@@ -2706,53 +2730,63 @@ class TechnicalIndicators:
         Returns:
             Dictionary with pivot, TC, and BC values
         """
-        # Calculate the previous day's data
-        self.df['prev_high'] = self.df['High'].shift(1)
-        self.df['prev_low'] = self.df['Low'].shift(1)
-        self.df['prev_close'] = self.df['Close'].shift(1)
+        # Calculate all values first
+        prev_high = self.df['High'].shift(1)
+        prev_low = self.df['Low'].shift(1)  
+        prev_close = self.df['Close'].shift(1)
         
-        # Calculate pivot points
-        self.df['pivot'] = (self.df['prev_high'] + self.df['prev_low'] + self.df['prev_close']) / 3
-        self.df['bc'] = (self.df['prev_high'] + self.df['prev_low']) / 2
-        self.df['tc'] = (self.df['pivot'] - self.df['bc']) + self.df['pivot']
+        # Calculate all pivot points and values
+        pivot = (prev_high + prev_low + prev_close) / 3
+        bc = (prev_high + prev_low) / 2
+        tc = (pivot - bc) + pivot
         
-        # Calculate traditional support and resistance levels
-        self.df['r1'] = (2 * self.df['pivot']) - self.df['prev_low']
-        self.df['s1'] = (2 * self.df['pivot']) - self.df['prev_high']
-        self.df['r2'] = self.df['pivot'] + (self.df['prev_high'] - self.df['prev_low'])
-        self.df['s2'] = self.df['pivot'] - (self.df['prev_high'] - self.df['prev_low'])
+        r1 = (2 * pivot) - prev_low
+        s1 = (2 * pivot) - prev_high
+        r2 = pivot + (prev_high - prev_low)
+        s2 = pivot - (prev_high - prev_low)
         
-        # Calculate CPR width (indication of volatility/range)
-        self.df['cpr_width'] = self.df['tc'] - self.df['bc']
+        cpr_width = tc - bc
+        cpr_width_pct = np.where(pivot > 0, 100 * cpr_width / pivot, 0)
         
-        # Handle division by zero for percentage calculation
-        self.df['cpr_width_pct'] = np.where(
-            self.df['pivot'] > 0,
-            100 * self.df['cpr_width'] / self.df['pivot'],
-            0  # Default to 0 when pivot is zero
-        )
+        # Calculate price position indicators
+        above_cpr = self.df['Close'] > tc
+        below_cpr = self.df['Close'] < bc
+        inside_cpr = (self.df['Close'] >= bc) & (self.df['Close'] <= tc)
         
-        # Price position relative to CPR (vectorized)
-        self.df['above_cpr'] = self.df['Close'] > self.df['tc']
-        self.df['below_cpr'] = self.df['Close'] < self.df['bc']
-        self.df['inside_cpr'] = (self.df['Close'] >= self.df['bc']) & (self.df['Close'] <= self.df['tc'])
+        # Calculate breakout signals
+        cpr_breakout_up = (self.df['Close'] > tc) & (self.df['Close'].shift(1) <= tc.shift(1))
+        cpr_breakout_down = (self.df['Close'] < bc) & (self.df['Close'].shift(1) >= bc.shift(1))
         
-        # CPR breakout signals
-        self.df['cpr_breakout_up'] = (
-            (self.df['Close'] > self.df['tc']) & 
-            (self.df['Close'].shift(1) <= self.df['tc'].shift(1))
-        )
+        # Create new columns dictionary
+        new_columns = {
+            'prev_high': prev_high,
+            'prev_low': prev_low,
+            'prev_close': prev_close,
+            'pivot': pivot,
+            'bc': bc,
+            'tc': tc,
+            'r1': r1,
+            's1': s1,
+            'r2': r2,
+            's2': s2,
+            'cpr_width': cpr_width,
+            'cpr_width_pct': cpr_width_pct,
+            'above_cpr': above_cpr,
+            'below_cpr': below_cpr,
+            'inside_cpr': inside_cpr,
+            'cpr_breakout_up': cpr_breakout_up,
+            'cpr_breakout_down': cpr_breakout_down
+        }
         
-        self.df['cpr_breakout_down'] = (
-            (self.df['Close'] < self.df['bc']) & 
-            (self.df['Close'].shift(1) >= self.df['bc'].shift(1))
-        )
+        # Add all columns at once to prevent fragmentation
+        self.df = pd.concat([self.df, pd.DataFrame(new_columns, index=self.df.index)], axis=1)
         
         return {
-            'pivot': self.df['pivot'],
-            'bc': self.df['bc'],
-            'tc': self.df['tc']
+            'pivot': pivot,
+            'bc': bc,
+            'tc': tc
         }
+
     
     #
     # 17. DOW THEORY PATTERNS
