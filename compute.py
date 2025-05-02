@@ -2343,11 +2343,11 @@ class TechnicalIndicators:
         self.df['plus_di'] = plus_di
         self.df['minus_di'] = minus_di
         
-        # Identify strong trend
-        self.df['adx_strong_trend'] = self.df['adx'] > adx_threshold
-        self.df['adx_weak_trend'] = self.df['adx'] < 20
+        # Identify strong trend - FIXED: Added proper parentheses for boolean operations
+        self.df['adx_strong_trend'] = (self.df['adx'] > adx_threshold)
+        self.df['adx_weak_trend'] = (self.df['adx'] < 20)
         
-        # Identify positive/negative crossover (vectorized)
+        # Identify positive/negative crossover (vectorized) - FIXED: Added proper parentheses
         self.df['adx_bullish_crossover'] = (
             (self.df['plus_di'] > self.df['minus_di']) & 
             (self.df['plus_di'].shift(1) <= self.df['minus_di'].shift(1)) &
@@ -2360,17 +2360,17 @@ class TechnicalIndicators:
             (self.df['adx'] > adx_threshold)
         )
         
-        # Strong ADX buy/sell signals
+        # Strong ADX buy/sell signals - FIXED: Added proper parentheses
         self.df['adx_strong_buy'] = (
-            self.df['adx'] > adx_threshold &
-            self.df['plus_di'] > self.df['minus_di'] &
-            self.df['adx'] > self.df['adx'].shift(1)
+            (self.df['adx'] > adx_threshold) &
+            (self.df['plus_di'] > self.df['minus_di']) &
+            (self.df['adx'] > self.df['adx'].shift(1))
         )
         
         self.df['adx_strong_sell'] = (
-            self.df['adx'] > adx_threshold &
-            self.df['minus_di'] > self.df['plus_di'] &
-            self.df['adx'] > self.df['adx'].shift(1)
+            (self.df['adx'] > adx_threshold) &
+            (self.df['minus_di'] > self.df['plus_di']) &
+            (self.df['adx'] > self.df['adx'].shift(1))
         )
         
         return {
