@@ -1180,7 +1180,7 @@ class CandlestickPatterns:
         
         # Piercing Pattern (vectorized)
         piercing_condition = (
-            ~df_prev['is_bullish'] &  # Previous candle is bearish
+            (df_prev['is_bullish'] == False) &  # Previous candle is bearish
             self.df['is_bullish'] &   # Current candle is bullish
             (df_prev['body_size'] / df_prev['candle_range'] > 0.6) &  # Previous is a long candle
             (self.df['Open'] < df_prev['Low']) &  # Gap down opening
@@ -1193,7 +1193,7 @@ class CandlestickPatterns:
         piercing_pattern_valid = piercing_condition & downtrend_context
         
         return piercing_pattern_valid
-    
+
     def detect_dark_cloud_cover(self):
         """
         Detect Dark Cloud Cover (bearish reversal pattern) using vectorized operations
@@ -1214,7 +1214,7 @@ class CandlestickPatterns:
         # Dark Cloud Cover (vectorized)
         dark_cloud_condition = (
             df_prev['is_bullish'] &    # Previous candle is bullish
-            ~self.df['is_bullish'] &   # Current candle is bearish
+            (self.df['is_bullish'] == False) &   # Current candle is bearish
             (df_prev['body_size'] / df_prev['candle_range'] > 0.6) &  # Previous is a long candle
             (self.df['Open'] > df_prev['High']) &  # Gap up opening
             (self.df['Close'] < (df_prev['Open'] + df_prev['Close']) / 2) &  # Close below midpoint
@@ -1252,7 +1252,7 @@ class CandlestickPatterns:
         
         # Morning Star conditions (vectorized where possible)
         condition = (
-            ~df_prev2['is_bullish'] &  # First candle is bearish
+            (df_prev2['is_bullish'] == False) &  # First candle is bearish
             self.df['is_bullish'] &    # Third candle is bullish
             (df_prev2['body_size'] / df_prev2['candle_range'] > 0.6) &  # First is a long candle
             (df_prev1['body_size'] / df_prev1['candle_range'] < star_body_size_threshold) &  # Second has a small body
@@ -1293,7 +1293,7 @@ class CandlestickPatterns:
         # Evening Star conditions (vectorized where possible)
         condition = (
             df_prev2['is_bullish'] &    # First candle is bullish
-            ~self.df['is_bullish'] &    # Third candle is bearish
+            (self.df['is_bullish'] == False) &    # Third candle is bearish
             (df_prev2['body_size'] / df_prev2['candle_range'] > 0.6) &  # First is a long candle
             (df_prev1['body_size'] / df_prev1['candle_range'] < star_body_size_threshold) &  # Second has a small body
             (df_prev1['Close'] > df_prev2['Close']) &  # Second gaps up from first
