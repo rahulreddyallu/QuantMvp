@@ -1076,8 +1076,9 @@ class CandlestickPatterns:
         df_prev = self.df.shift(1)
         
         # Bullish Engulfing (vectorized)
+        # Use pandas comparison methods instead of bitwise operator (~) to avoid issues with NaN values
         bullish_engulfing_condition = (
-            ~self.df['is_bullish'].shift(1) &  # Previous candle is bearish
+            (self.df['is_bullish'].shift(1) == False) &  # Previous candle is bearish
             self.df['is_bullish'] &            # Current candle is bullish
             (self.df['Open'] <= df_prev['Close']) &  # Current open below previous close
             (self.df['Close'] >= df_prev['Open'])    # Current close above previous open
@@ -1089,10 +1090,10 @@ class CandlestickPatterns:
         
         # Bearish Engulfing (vectorized)
         bearish_engulfing_condition = (
-            self.df['is_bullish'].shift(1) &    # Previous candle is bullish
-            ~self.df['is_bullish'] &            # Current candle is bearish
-            (self.df['Open'] >= df_prev['Close']) &  # Current open above previous close
-            (self.df['Close'] <= df_prev['Open'])    # Current close below previous open
+            (self.df['is_bullish'].shift(1) == True) &  # Previous candle is bullish
+            (self.df['is_bullish'] == False) &          # Current candle is bearish
+            (self.df['Open'] >= df_prev['Close']) &     # Current open above previous close
+            (self.df['Close'] <= df_prev['Open'])       # Current close below previous open
         )
         
         # Add trend context
@@ -1103,7 +1104,7 @@ class CandlestickPatterns:
             'bullish_engulfing': bullish_engulfing_valid,
             'bearish_engulfing': bearish_engulfing_valid
         }
-    
+        
     def detect_harami(self):
         """
         Detect Harami patterns (two-candle pattern where second candle is contained within first) using vectorized operations
@@ -1127,7 +1128,7 @@ class CandlestickPatterns:
         
         # Bullish Harami (vectorized)
         bullish_harami_condition = (
-            ~df_prev['is_bullish'] &  # Previous candle is bearish
+            (df_prev['is_bullish'] == False) &  # Previous candle is bearish
             self.df['is_bullish'] &   # Current candle is bullish
             (self.df['Open'] > df_prev['Close']) &  # Current open inside previous body
             (self.df['Open'] < df_prev['Open']) &
@@ -1143,7 +1144,7 @@ class CandlestickPatterns:
         # Bearish Harami (vectorized)
         bearish_harami_condition = (
             df_prev['is_bullish'] &    # Previous candle is bullish
-            ~self.df['is_bullish'] &   # Current candle is bearish
+            (self.df['is_bullish'] == False) &   # Current candle is bearish
             (self.df['Open'] < df_prev['Close']) &  # Current open inside previous body
             (self.df['Open'] > df_prev['Open']) &
             (self.df['Close'] < df_prev['Close']) &  # Current close inside previous body
@@ -1159,7 +1160,7 @@ class CandlestickPatterns:
             'bullish_harami': bullish_harami_valid,
             'bearish_harami': bearish_harami_valid
         }
-    
+        
     def detect_piercing_pattern(self):
         """
         Detect Piercing Pattern (bullish reversal pattern) using vectorized operations
