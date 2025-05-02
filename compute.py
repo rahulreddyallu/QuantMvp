@@ -347,9 +347,14 @@ async def get_telegram_bot(token):
     try:
         yield bot
     finally:
-        if hasattr(bot, 'session') and not bot.session.closed:
-            await bot.session.close()
-
+        # Close the bot session without checking for closed attribute
+        if hasattr(bot, 'session'):
+            try:
+                await bot.session.close()
+            except Exception as e:
+                # Proper fallback for different session objects
+                if hasattr(bot, 'close'):
+                    await bot.close()
 
 async def send_telegram_message(message, config, logger, retry_attempts=5):
     """
@@ -375,15 +380,35 @@ async def send_telegram_message(message, config, logger, retry_attempts=5):
     
     for attempt in range(retry_attempts):
         try:
-            async with get_telegram_bot(config.get('TELEGRAM_BOT_TOKEN', '')) as bot:
-                # Use plain text format for now to avoid escaping issues
+            # Create a fresh Bot instance for each attempt to avoid session issues
+            bot = Bot(token=config.get('TELEGRAM_BOT_TOKEN', ''))
+            
+            try:
+                # Send the message
                 await bot.send_message(
                     chat_id=config.get('TELEGRAM_CHAT_ID', ''), 
                     text=message
-                    # parse_mode='MarkdownV2'  # Uncomment when escaping is fixed
                 )
                 logger.info(f"Successfully sent telegram message (attempt {attempt+1})")
+                
+                # Explicitly close the bot session
+                if hasattr(bot, 'session'):
+                    await bot.session.close()
+                elif hasattr(bot, 'close'):
+                    await bot.close()
+                    
                 return True
+                
+            finally:
+                # Ensure we always try to close the session
+                try:
+                    if hasattr(bot, 'session'):
+                        await bot.session.close()
+                    elif hasattr(bot, 'close'):
+                        await bot.close()
+                except Exception:
+                    pass
+                    
         except Exception as e:
             if "Too Many Requests" in str(e):
                 retry_after = int(str(e).split("retry after ")[-1].split()[0]) if "retry after" in str(e) else delay
